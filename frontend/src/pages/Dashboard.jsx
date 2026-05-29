@@ -468,9 +468,8 @@ export default function Dashboard() {
   };
 
   const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    navigate("/login");
+    localStorage.clear();
+    window.location.href = "/login";
   };
 
   const user = (() => {

@@ -39,7 +39,7 @@ export default function ProtectedRoute({ children }) {
   }, [token]);
 
   if (status === "checking") {
-    return null;
+    return <div>Loading...</div>
   }
 
   if (status === "unauthorized") {
