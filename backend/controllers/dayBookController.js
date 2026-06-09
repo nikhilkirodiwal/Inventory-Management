@@ -1,6 +1,85 @@
 import DayBook from "../models/dayBook.js";
 
-// GET /api/daybook?month=2026-04
+/* ─── helpers ────────────────────────────────────────────────────────────── */
+const sumMap = (obj = {}) =>
+  Object.values(obj).reduce((s, v) => s + (Number(v) || 0), 0);
+
+const sumPersonEntries = (arr = []) =>
+  arr.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+/**
+ * Recompute all derived fields from raw inputs.
+ * expenseEntries arrives as a plain object from JSON — Mongoose Map handles it.
+ */
+const recompute = (body) => {
+  const openingCash = Number(body.openingCash) || 0;
+  const cashToOffice = Number(body.cashToOffice) || 0;
+  const kitchenSale = Number(body.kitchenSale) || 0;
+  const officialCr = Number(body.officialCr) || 0;
+  const cafeSale = Number(body.cafeSale) || 0;
+  const cafeNight = Number(body.cafeNight) || 0;
+  const upiReceived = Number(body.upiReceived) || 0;
+
+  const personalCrEntries = Array.isArray(body.personalCrEntries)
+    ? body.personalCrEntries
+    : [];
+  const personalCr = personalCrEntries.length
+    ? sumPersonEntries(personalCrEntries)
+    : Number(body.personalCr) || 0;
+
+  const coffeeShopEntries = Array.isArray(body.coffeeShopEntries)
+    ? body.coffeeShopEntries
+    : [];
+  const coffeeShop = coffeeShopEntries.length
+    ? sumPersonEntries(coffeeShopEntries)
+    : Number(body.coffeeShop ?? body.coffeeShopSale) || 0;
+
+  // expenseEntries: plain object from frontend — values may be strings
+  const rawExp =
+    body.expenseEntries && typeof body.expenseEntries === "object"
+      ? body.expenseEntries
+      : {};
+  // Filter to only non-zero entries
+  const expenseEntries = {};
+  Object.entries(rawExp).forEach(([k, v]) => {
+    const n = Number(v);
+    if (n > 0) expenseEntries[k] = n;
+  });
+  const cashExpenses = sumMap(expenseEntries) || Number(body.cashExpenses) || 0;
+
+  const totalSale =
+    kitchenSale +
+    officialCr +
+    personalCr +
+    coffeeShop +
+    cafeSale +
+    cafeNight +
+    upiReceived;
+  const totalCash = openingCash + totalSale;
+  const closingCash = totalCash - cashExpenses - cashToOffice;
+
+  return {
+    openingCash,
+    cashToOffice,
+    kitchenSale,
+    officialCr,
+    personalCr,
+    personalCrEntries,
+    coffeeShop,
+    coffeeShopSale: coffeeShop,
+    coffeeShopEntries,
+    cafeSale,
+    cafeNight,
+    upiReceived,
+    totalSale,
+    totalCash,
+    expenseEntries,
+    cashExpenses,
+    closingCash,
+  };
+};
+
+/* ─── GET /api/daybook?month=2026-04 ─────────────────────────────────────── */
 export const getEntries = async (req, res) => {
   try {
     const { month, page = 1, limit = 31 } = req.query;
@@ -8,10 +87,9 @@ export const getEntries = async (req, res) => {
 
     if (month) {
       const [year, mon] = month.split("-").map(Number);
-      // Use UTC dates to match MongoDB ISODate storage
-      const start = new Date(Date.UTC(year, mon - 1, 1)); // 2026-04-01T00:00:00.000Z
-      const end = new Date(Date.UTC(year, mon, 1)); // 2026-05-01T00:00:00.000Z (exclusive)
-      query.date = { $gte: start, $lt: end }; // $lt instead of $lte avoids the 23:59:59 gap
+      const start = new Date(Date.UTC(year, mon - 1, 1));
+      const end = new Date(Date.UTC(year, mon, 1)); // exclusive
+      query.date = { $gte: start, $lt: end };
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -20,19 +98,47 @@ export const getEntries = async (req, res) => {
       DayBook.countDocuments(query),
     ]);
 
-    const totals = entries.reduce(
+    // Serialize: convert Mongoose Map → plain object for expenseEntries
+    const serialized = entries.map((e) => {
+      const obj = e.toObject({ getters: false });
+      if (obj.expenseEntries instanceof Map) {
+        obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+      }
+      return obj;
+    });
+
+    const totals = serialized.reduce(
       (acc, e) => ({
-        kitchenSale: acc.kitchenSale + e.kitchenSale,
-        coffeeShopSale: acc.coffeeShopSale + e.coffeeShopSale,
-        totalSale: acc.totalSale + e.totalSale,
-        cashExpenses: acc.cashExpenses + e.cashExpenses,
+        kitchenSale: acc.kitchenSale + (e.kitchenSale || 0),
+        officialCr: acc.officialCr + (e.officialCr || 0),
+        personalCr: acc.personalCr + (e.personalCr || 0),
+        coffeeShop: acc.coffeeShop + (e.coffeeShop || e.coffeeShopSale || 0),
+        cafeSale: acc.cafeSale + (e.cafeSale || 0),
+        cafeNight: acc.cafeNight + (e.cafeNight || 0),
+        upiReceived: acc.upiReceived + (e.upiReceived || 0),
+        totalSale: acc.totalSale + (e.totalSale || 0),
+        totalCash: acc.totalCash + (e.totalCash || 0),
+        cashExpenses: acc.cashExpenses + (e.cashExpenses || 0),
+        cashToOffice: acc.cashToOffice + (e.cashToOffice || 0),
       }),
-      { kitchenSale: 0, coffeeShopSale: 0, totalSale: 0, cashExpenses: 0 },
+      {
+        kitchenSale: 0,
+        officialCr: 0,
+        personalCr: 0,
+        coffeeShop: 0,
+        cafeSale: 0,
+        cafeNight: 0,
+        upiReceived: 0,
+        totalSale: 0,
+        totalCash: 0,
+        cashExpenses: 0,
+        cashToOffice: 0,
+      },
     );
 
     res.json({
       success: true,
-      data: entries,
+      data: serialized,
       totals,
       total,
       page: Number(page),
@@ -43,7 +149,7 @@ export const getEntries = async (req, res) => {
   }
 };
 
-// GET /api/daybook/:id
+/* ─── GET /api/daybook/:id ───────────────────────────────────────────────── */
 export const getEntry = async (req, res) => {
   try {
     const entry = await DayBook.findById(req.params.id);
@@ -51,47 +157,75 @@ export const getEntry = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
-    res.json({ success: true, data: entry });
+    const obj = entry.toObject({ getters: false });
+    if (obj.expenseEntries instanceof Map)
+      obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+    res.json({ success: true, data: obj });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// POST /api/daybook
+/* ─── POST /api/daybook ──────────────────────────────────────────────────── */
 export const createEntry = async (req, res) => {
   try {
-    const entry = await DayBook.create(req.body);
-    res.status(201).json({ success: true, data: entry });
+    const incomingDate = new Date(req.body.date);
+    const todayUTC = new Date(
+      Date.UTC(
+        new Date().getUTCFullYear(),
+        new Date().getUTCMonth(),
+        new Date().getUTCDate(),
+      ),
+    );
+    if (incomingDate > todayUTC)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Cannot create an entry for a future date.",
+        });
+
+    const computed = recompute(req.body);
+    const entry = await DayBook.create({ date: req.body.date, ...computed });
+    const obj = entry.toObject({ getters: false });
+    if (obj.expenseEntries instanceof Map)
+      obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+    res.status(201).json({ success: true, data: obj });
   } catch (err) {
     if (err.code === 11000)
       return res
         .status(400)
         .json({
           success: false,
-          message: "Entry for this date already exists",
+          message: "Entry for this date already exists.",
         });
     res.status(400).json({ success: false, message: err.message });
   }
 };
 
-// PUT /api/daybook/:id
+/* ─── PUT /api/daybook/:id ───────────────────────────────────────────────── */
 export const updateEntry = async (req, res) => {
   try {
-    const entry = await DayBook.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const computed = recompute(req.body);
+    const entry = await DayBook.findByIdAndUpdate(
+      req.params.id,
+      { $set: computed },
+      { new: true, runValidators: true },
+    );
     if (!entry)
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
-    res.json({ success: true, data: entry });
+    const obj = entry.toObject({ getters: false });
+    if (obj.expenseEntries instanceof Map)
+      obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+    res.json({ success: true, data: obj });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
 };
 
-// DELETE /api/daybook/:id
+/* ─── DELETE /api/daybook/:id ────────────────────────────────────────────── */
 export const deleteEntry = async (req, res) => {
   try {
     const entry = await DayBook.findByIdAndDelete(req.params.id);
@@ -105,7 +239,7 @@ export const deleteEntry = async (req, res) => {
   }
 };
 
-// GET /api/daybook/summary/monthly
+/* ─── GET /api/daybook/summary/monthly ──────────────────────────────────── */
 export const getMonthlySummary = async (req, res) => {
   try {
     const summary = await DayBook.aggregate([
@@ -114,9 +248,22 @@ export const getMonthlySummary = async (req, res) => {
           _id: { year: { $year: "$date" }, month: { $month: "$date" } },
           totalSale: { $sum: "$totalSale" },
           totalCash: { $sum: "$totalCash" },
-          totalExpenses: { $sum: "$cashExpenses" },
-          avgClosing: { $avg: "$closingCash" },
+          cashExpenses: { $sum: "$cashExpenses" },
+          cashToOffice: { $sum: "$cashToOffice" },
+          kitchenSale: { $sum: "$kitchenSale" },
+          officialCr: { $sum: "$officialCr" },
+          personalCr: { $sum: "$personalCr" },
+          coffeeShop: { $sum: "$coffeeShop" },
+          upiReceived: { $sum: "$upiReceived" },
+          lastClosing: { $last: "$closingCash" },
           days: { $sum: 1 },
+        },
+      },
+      {
+        $addFields: {
+          surplus: {
+            $subtract: ["$totalCash", "$cashExpenses", "$cashToOffice"],
+          },
         },
       },
       { $sort: { "_id.year": -1, "_id.month": -1 } },
