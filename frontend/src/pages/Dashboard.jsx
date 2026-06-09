@@ -1938,8 +1938,8 @@ export default function Dashboard() {
                 />
                 <StatCard
                   label="Coffee Shop"
-                  value={totals.coffeeShopSale}
-                  sub="C/Shop revenue"
+                  value={totals.coffeeShop}
+                  sub="Coffee Shop revenue"
                 />
                 <StatCard
                   label="Surplus / Deficit"
@@ -2343,7 +2343,7 @@ export default function Dashboard() {
                         className="px-3 py-3 text-right tabular-nums"
                         style={{ color: "var(--accent-text)" }}
                       >
-                        {fmt(totals.coffeeShopSale)}
+                        {fmt(totals.coffeeShop)}
                       </td>
                       <td className="px-3 py-3" />
                       <td className="px-3 py-3" />
