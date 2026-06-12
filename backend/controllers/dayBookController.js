@@ -13,12 +13,30 @@ const sumPersonEntries = (arr = []) =>
  */
 const recompute = (body) => {
   const openingCash = Number(body.openingCash) || 0;
-  const cashToOffice = Number(body.cashToOffice) || 0;
-  const kitchenSale = Number(body.kitchenSale) || 0;
-  const officialCr = Number(body.officialCr) || 0;
   const cafeSale = Number(body.cafeSale) || 0;
   const cafeNight = Number(body.cafeNight) || 0;
   const upiReceived = Number(body.upiReceived) || 0;
+
+  const cashToOfficeEntries = Array.isArray(body.cashToOfficeEntries)
+    ? body.cashToOfficeEntries
+    : [];
+  const cashToOffice = cashToOfficeEntries.length
+    ? sumPersonEntries(cashToOfficeEntries)
+    : Number(body.cashToOffice) || 0;
+
+  const kitchenSaleEntries = Array.isArray(body.kitchenSaleEntries)
+    ? body.kitchenSaleEntries
+    : [];
+  const kitchenSale = kitchenSaleEntries.length
+    ? sumPersonEntries(kitchenSaleEntries)
+    : Number(body.kitchenSale) || 0;
+
+  const officialCrEntries = Array.isArray(body.officialCrEntries)
+    ? body.officialCrEntries
+    : [];
+  const officialCr = officialCrEntries.length
+    ? sumPersonEntries(officialCrEntries)
+    : Number(body.officialCr) || 0;
 
   const personalCrEntries = Array.isArray(body.personalCrEntries)
     ? body.personalCrEntries
@@ -49,32 +67,52 @@ const recompute = (body) => {
 
   const totalSale =
     kitchenSale +
+    coffeeShop +
+    cafeSale +
+    cafeNight -
+    officialCr -
+    personalCr -
+    upiReceived;
+  const totalCash =
+    openingCash +
+    kitchenSale +
     officialCr +
     personalCr +
     coffeeShop +
     cafeSale +
-    cafeNight +
+    cafeNight -
     upiReceived;
-  const totalCash = openingCash + totalSale;
   const closingCash = totalCash - cashExpenses - cashToOffice;
 
   return {
     openingCash,
-    cashToOffice,
+
     kitchenSale,
+    kitchenSaleEntries,
+
     officialCr,
+    officialCrEntries,
+
     personalCr,
     personalCrEntries,
+
     coffeeShop,
     coffeeShopSale: coffeeShop,
     coffeeShopEntries,
+
     cafeSale,
     cafeNight,
     upiReceived,
+
     totalSale,
     totalCash,
+
     expenseEntries,
     cashExpenses,
+
+    cashToOffice,
+    cashToOfficeEntries,
+
     closingCash,
   };
 };
@@ -178,27 +216,25 @@ export const createEntry = async (req, res) => {
       ),
     );
     if (incomingDate > todayUTC)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Cannot create an entry for a future date.",
-        });
-
+      return res.status(400).json({
+        success: false,
+        message: "Cannot create an entry for a future date.",
+      });
     const computed = recompute(req.body);
-    const entry = await DayBook.create({ date: req.body.date, ...computed });
+    const entry = await DayBook.create({
+      date: req.body.date,
+      ...computed,
+    });
     const obj = entry.toObject({ getters: false });
     if (obj.expenseEntries instanceof Map)
       obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
     res.status(201).json({ success: true, data: obj });
   } catch (err) {
     if (err.code === 11000)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Entry for this date already exists.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Entry for this date already exists.",
+      });
     res.status(400).json({ success: false, message: err.message });
   }
 };

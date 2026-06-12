@@ -137,7 +137,7 @@ const COLUMNS = [
   { key: "totalCash", label: "Total Cash", align: "right" },
   { key: "cashToOffice", label: "Cash Office", align: "right" },
   { key: "cashExpenses", label: "Cash Exp.", align: "right" },
-  { key: "deficit", label: "Surplus/Def", align: "right" },
+  { key: "deficit", label: "Profit/Loss", align: "right" },
   { key: "closingCash", label: "Closing", align: "right" },
 ];
 
@@ -454,7 +454,9 @@ function PersonEntryPopup({ title, entries, onClose, onSave }) {
                 Cancel
               </button>
               <button
-                onClick={() => onSave(rows.filter((r) => r.name || r.amount))}
+                onClick={() => {
+                  onSave(rows.filter((r) => r.name || r.amount));
+                }}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
                 style={{ background: "var(--accent)" }}
               >
@@ -635,196 +637,284 @@ function ExpensePopup({ expenses, onClose, onSave }) {
 /* ─── DetailModal ─────────────────────────────────────────────────────────── */
 function DetailModal({ entry, onClose }) {
   if (!entry) return null;
-  const personalEntries = entry.personalCrEntries || [];
-  const coffeeEntries = entry.coffeeShopEntries || [];
+
   const expenses = normalizeExpenses(entry.expenseEntries);
-  const expenseItems = Object.entries(expenses).filter(([, v]) => v > 0);
+  const expenseItems = Object.entries(expenses).filter(
+    ([, value]) => Number(value) > 0,
+  );
+
+  const sections = [
+    {
+      title: "Kitchen Sale",
+      amount: entry.kitchenSale,
+      items: entry.kitchenSaleEntries || [],
+    },
+    {
+      title: "Official Credit",
+      amount: entry.officialCr,
+      items: entry.officialCrEntries || [],
+    },
+    {
+      title: "Personal Credit",
+      amount: entry.personalCr,
+      items: entry.personalCrEntries || [],
+    },
+    {
+      title: "Coffee Shop",
+      amount: entry.coffeeShop || entry.coffeeShopSale,
+      items: entry.coffeeShopEntries || [],
+    },
+    {
+      title: "Cash To Office",
+      amount: entry.cashToOffice,
+      items: entry.cashToOfficeEntries || [],
+    },
+  ];
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
+      style={{ background: "rgba(0,0,0,.65)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border"
+        className="w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-3xl border"
         style={{
           background: "var(--bg-surface)",
           borderColor: "var(--border)",
           boxShadow: "var(--shadow)",
         }}
       >
+        {/* Header */}
         <div
-          className="flex items-center justify-between px-6 py-4 border-b"
-          style={{ borderColor: "var(--border-sub)" }}
+          className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--border-sub)",
+          }}
         >
           <div>
-            <h3
-              className="font-bold text-base"
+            <h2
+              className="text-xl font-bold"
               style={{ color: "var(--text-primary)" }}
             >
-              Entry Details
-            </h3>
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Day Book Details
+            </h2>
+
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               {fmtDate(entry.date)}
             </p>
           </div>
+
           <button
             onClick={onClose}
-            className="text-lg leading-none"
-            style={{ color: "var(--text-muted)" }}
+            className="w-10 h-10 rounded-xl border flex items-center justify-center"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--bg-elevated)",
+            }}
           >
             ✕
           </button>
         </div>
 
         <div className="p-6 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Opening Cash
-              </p>
-              <p className="font-semibold">₹{fmt(entry.openingCash)}</p>
-            </div>
-            <div>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Cash to Office
-              </p>
-              <p className="font-semibold">₹{fmt(entry.cashToOffice)}</p>
-            </div>
-            <div>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Total Cash
-              </p>
-              <p className="font-semibold">₹{fmt(entry.totalCash)}</p>
-            </div>
-            <div>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Closing Cash
-              </p>
-              <p className="font-semibold">₹{fmt(entry.closingCash)}</p>
-            </div>
+          {/* Summary */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard label="Opening Cash" value={entry.openingCash} />
+
+            <StatCard label="Total Sale" value={entry.totalSale} accent />
+
+            <StatCard label="Total Cash" value={entry.totalCash} />
+
+            <StatCard
+              label="Closing Cash"
+              value={entry.closingCash}
+              accent={entry.closingCash >= 0}
+              danger={entry.closingCash < 0}
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p
-                className="text-sm font-semibold"
-                style={{ color: "var(--text-primary)" }}
-              >
-                Sales Breakdown
-              </p>
-              <div className="mt-3 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Kitchen Sale</span>
-                  <span>₹{fmt(entry.kitchenSale)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Official Cr.</span>
-                  <span>₹{fmt(entry.officialCr)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Personal Cr.</span>
-                  <span>
-                    ₹
-                    {fmt(entry.personalCr ?? sumPersonEntries(personalEntries))}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Coffee Shop</span>
-                  <span>₹{fmt(entry.coffeeShop ?? entry.coffeeShopSale)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Café Sale</span>
-                  <span>₹{fmt(entry.cafeSale)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Café Night</span>
-                  <span>₹{fmt(entry.cafeNight)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>UPI Received</span>
-                  <span>₹{fmt(entry.upiReceived)}</span>
-                </div>
-              </div>
-            </div>
-            <div>
-              <p
-                className="text-sm font-semibold"
-                style={{ color: "var(--text-primary)" }}
-              >
-                Expense Breakdown
-              </p>
-              {expenseItems.length > 0 ? (
-                <div className="mt-3 space-y-2 text-sm">
-                  {expenseItems.map(([key, value]) => (
-                    <div key={key} className="flex justify-between">
-                      <span>{key}</span>
-                      <span>₹{fmt(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p
-                  className="mt-3 text-sm"
-                  style={{ color: "var(--text-muted)" }}
+          {/* Sales & Credits */}
+          <div>
+            <h3
+              className="font-bold text-base mb-4"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Sales & Credit Breakdown
+            </h3>
+
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {sections.map((section) => (
+                <div
+                  key={section.title}
+                  className="rounded-2xl border p-4"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: "var(--border-sub)",
+                  }}
                 >
-                  No expenses recorded.
-                </p>
-              )}
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-semibold">{section.title}</h4>
+
+                    <span
+                      className="font-bold"
+                      style={{
+                        color: "var(--accent-text)",
+                      }}
+                    >
+                      ₹{fmt(section.amount)}
+                    </span>
+                  </div>
+
+                  {section.items.length > 0 ? (
+                    <div className="space-y-2">
+                      {section.items.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="flex justify-between text-sm rounded-lg px-3 py-2"
+                          style={{
+                            background: "var(--bg-surface)",
+                          }}
+                        >
+                          <span>{item.name}</span>
+                          <span className="font-medium">
+                            ₹{fmt(item.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p
+                      className="text-xs"
+                      style={{
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      No entries available
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
-          <div>
-            <p
-              className="text-sm font-semibold"
-              style={{ color: "var(--text-primary)" }}
-            >
-              Personal Credit Entries
-            </p>
-            {personalEntries.length > 0 ? (
-              <div className="mt-3 grid gap-2 text-sm">
-                {personalEntries.map((item, idx) => (
-                  <div key={idx} className="flex justify-between">
-                    <span>{item.name}</span>
-                    <span>₹{fmt(item.amount)}</span>
+          {/* Expenses */}
+          <div
+            className="rounded-2xl border p-5"
+            style={{
+              background: "var(--bg-elevated)",
+              borderColor: "var(--border-sub)",
+            }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-base">Expense Breakdown</h3>
+
+              <span
+                className="font-bold"
+                style={{
+                  color: "var(--danger-text)",
+                }}
+              >
+                ₹{fmt(entry.cashExpenses)}
+              </span>
+            </div>
+
+            {expenseItems.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                {expenseItems.map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="rounded-xl p-3"
+                    style={{
+                      background: "var(--bg-surface)",
+                    }}
+                  >
+                    <p
+                      className="text-xs mb-1"
+                      style={{
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      {key}
+                    </p>
+
+                    <p className="font-semibold">₹{fmt(value)}</p>
                   </div>
                 ))}
               </div>
             ) : (
               <p
-                className="mt-3 text-sm"
-                style={{ color: "var(--text-muted)" }}
+                className="text-sm"
+                style={{
+                  color: "var(--text-muted)",
+                }}
               >
-                No personal credit entries.
+                No expenses recorded.
               </p>
             )}
           </div>
 
-          <div>
-            <p
-              className="text-sm font-semibold"
-              style={{ color: "var(--text-primary)" }}
+          {/* Formula Cards */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: "var(--bg-elevated)",
+              }}
             >
-              Coffee Shop Entries
-            </p>
-            {coffeeEntries.length > 0 ? (
-              <div className="mt-3 grid gap-2 text-sm">
-                {coffeeEntries.map((item, idx) => (
-                  <div key={idx} className="flex justify-between">
-                    <span>{item.name}</span>
-                    <span>₹{fmt(item.amount)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
               <p
-                className="mt-3 text-sm"
-                style={{ color: "var(--text-muted)" }}
+                className="text-xs mb-2"
+                style={{
+                  color: "var(--text-muted)",
+                }}
               >
-                No coffee shop entries.
+                Total Sale Formula
               </p>
-            )}
+
+              <p className="text-sm font-medium">
+                Kitchen + Coffee + Café Sale + Café Night − Official Cr −
+                Personal Cr − UPI
+              </p>
+            </div>
+
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: "var(--bg-elevated)",
+              }}
+            >
+              <p
+                className="text-xs mb-2"
+                style={{
+                  color: "var(--text-muted)",
+                }}
+              >
+                Total Cash Formula
+              </p>
+
+              <p className="text-sm font-medium">Opening Cash + Total Sale</p>
+            </div>
+
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: "var(--bg-elevated)",
+              }}
+            >
+              <p
+                className="text-xs mb-2"
+                style={{
+                  color: "var(--text-muted)",
+                }}
+              >
+                Closing Cash Formula
+              </p>
+
+              <p className="text-sm font-medium">
+                Total Cash − Expenses − Cash To Office
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -846,21 +936,27 @@ function EntryModal({
         date: e.date?.split("T")[0] ?? e.date,
         openingCash: e.openingCash ?? 0,
         kitchenSale: e.kitchenSale ?? 0,
+        kitchenSaleEntries: e.kitchenSaleEntries || [],
         officialCr: e.officialCr ?? 0,
+        officialCrEntries: e.officialCrEntries || [],
         personalCrEntries: e.personalCrEntries || [],
         coffeeShopEntries: e.coffeeShopEntries || [],
         cafeSale: e.cafeSale ?? 0,
         cafeNight: e.cafeNight ?? 0,
         upiReceived: e.upiReceived ?? 0,
         cashToOffice: e.cashToOffice ?? 0,
+        cashToOfficeEntries: e.cashToOfficeEntries || [],
         expenseEntries: normalizeExpenses(e.expenseEntries),
       };
     return {
       date: todayStr(),
       openingCash: lastClosingCash ?? 0,
       cashToOffice: "",
+      cashToOfficeEntries: [],
       kitchenSale: "",
+      kitchenSaleEntries: [],
       officialCr: "",
+      officialCrEntries: [],
       personalCrEntries: [],
       coffeeShopEntries: [],
       cafeSale: "",
@@ -873,23 +969,45 @@ function EntryModal({
   const [form, setForm] = useState(() => initForm(entry));
   const [personalPopup, setPersonalPopup] = useState(false);
   const [coffeePopup, setCoffeePopup] = useState(false);
+  const [kitchenPopup, setKitchenPopup] = useState(false);
+  const [officialPopup, setOfficialPopup] = useState(false);
+  const [cashToOfficePopup, setCashToOfficePopup] = useState(false);
   const [expensePopup, setExpensePopup] = useState(false);
   const [dateError, setDateError] = useState("");
 
+  const kitchenSaleTotal =
+    form.kitchenSaleEntries.length > 0
+      ? sumPersonEntries(form.kitchenSaleEntries)
+      : Number(form.kitchenSale) || 0;
+  const officialCrTotal =
+    form.officialCrEntries.length > 0
+      ? sumPersonEntries(form.officialCrEntries)
+      : Number(form.officialCr) || 0;
   const personalCrTotal = sumPersonEntries(form.personalCrEntries);
   const coffeeTotal = sumPersonEntries(form.coffeeShopEntries);
+  const cashToOfficeTotal =
+    form.cashToOfficeEntries.length > 0
+      ? sumPersonEntries(form.cashToOfficeEntries)
+      : Number(form.cashToOffice) || 0;
   const totalSale =
-    (Number(form.kitchenSale) || 0) +
-    (Number(form.officialCr) || 0) +
+    kitchenSaleTotal +
+    coffeeTotal +
+    (Number(form.cafeSale) || 0) +
+    (Number(form.cafeNight) || 0) -
+    officialCrTotal -
+    personalCrTotal -
+    (Number(form.upiReceived) || 0);
+  const totalCash =
+    (Number(form.openingCash) || 0) +
+    kitchenSaleTotal +
+    officialCrTotal +
     personalCrTotal +
     coffeeTotal +
     (Number(form.cafeSale) || 0) +
-    (Number(form.cafeNight) || 0) +
+    (Number(form.cafeNight) || 0) -
     (Number(form.upiReceived) || 0);
-  const totalCash = (Number(form.openingCash) || 0) + totalSale;
   const cashExpenses = sumExpenses(form.expenseEntries);
-  const closingCash =
-    totalCash - cashExpenses - (Number(form.cashToOffice) || 0);
+  const closingCash = totalCash - cashExpenses - cashToOfficeTotal;
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -913,8 +1031,10 @@ function EntryModal({
     onSave({
       date: form.date,
       openingCash: Number(form.openingCash) || 0,
-      kitchenSale: Number(form.kitchenSale) || 0,
-      officialCr: Number(form.officialCr) || 0,
+      kitchenSale: kitchenSaleTotal,
+      kitchenSaleEntries: form.kitchenSaleEntries,
+      officialCr: officialCrTotal,
+      officialCrEntries: form.officialCrEntries,
       personalCrEntries: form.personalCrEntries,
       personalCr: personalCrTotal,
       coffeeShopEntries: form.coffeeShopEntries,
@@ -923,7 +1043,8 @@ function EntryModal({
       cafeSale: Number(form.cafeSale) || 0,
       cafeNight: Number(form.cafeNight) || 0,
       upiReceived: Number(form.upiReceived) || 0,
-      cashToOffice: Number(form.cashToOffice) || 0,
+      cashToOffice: cashToOfficeTotal,
+      cashToOfficeEntries: form.cashToOfficeEntries,
       totalSale,
       totalCash,
       expenseEntries: expObj,
@@ -1040,14 +1161,26 @@ function EntryModal({
               >
                 Cash to Office
               </label>
-              <input
-                type="number"
-                placeholder="0"
-                value={form.cashToOffice}
-                onChange={(e) => set("cashToOffice", e.target.value)}
-                className={inputCls}
-                style={inputStyle}
-              />
+              <button
+                type="button"
+                onClick={() => setCashToOfficePopup(true)}
+                className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
+                style={{ ...inputStyle, borderColor: "var(--border)" }}
+              >
+                <span
+                  style={{
+                    color:
+                      cashToOfficeTotal > 0
+                        ? "var(--text-primary)"
+                        : "var(--text-muted)",
+                  }}
+                >
+                  {cashToOfficeTotal > 0
+                    ? `₹${fmt(cashToOfficeTotal)}${form.cashToOfficeEntries.length > 0 ? ` (${form.cashToOfficeEntries.length} entries)` : ""}`
+                    : "Enter cash-to-office entries…"}
+                </span>
+                <span style={{ color: "var(--accent-text)" }}>✎</span>
+              </button>
               <p
                 className="text-xs mt-1"
                 style={{ color: "var(--text-muted)" }}
@@ -1073,14 +1206,29 @@ function EntryModal({
                 >
                   Kitchen Sale
                 </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.kitchenSale}
-                  onChange={(e) => set("kitchenSale", e.target.value)}
-                  className={inputCls}
-                  style={inputStyle}
-                />
+                <button
+                  type="button"
+                  onClick={() => setKitchenPopup(true)}
+                  className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
+                  style={{
+                    ...inputStyle,
+                    borderColor: "var(--border)",
+                  }}
+                >
+                  <span
+                    style={{
+                      color:
+                        kitchenSaleTotal > 0
+                          ? "var(--text-primary)"
+                          : "var(--text-muted)",
+                    }}
+                  >
+                    {kitchenSaleTotal > 0
+                      ? `₹${fmt(kitchenSaleTotal)}${form.kitchenSaleEntries.length > 0 ? ` (${form.kitchenSaleEntries.length} entries)` : ""}`
+                      : "Enter kitchen sale by person…"}
+                  </span>
+                  <span style={{ color: "var(--accent-text)" }}>✎</span>
+                </button>
               </div>
               <div>
                 <label
@@ -1089,14 +1237,29 @@ function EntryModal({
                 >
                   Official Cr.
                 </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.officialCr}
-                  onChange={(e) => set("officialCr", e.target.value)}
-                  className={inputCls}
-                  style={inputStyle}
-                />
+                <button
+                  type="button"
+                  onClick={() => setOfficialPopup(true)}
+                  className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
+                  style={{
+                    ...inputStyle,
+                    borderColor: "var(--border)",
+                  }}
+                >
+                  <span
+                    style={{
+                      color:
+                        officialCrTotal > 0
+                          ? "var(--text-primary)"
+                          : "var(--text-muted)",
+                    }}
+                  >
+                    {officialCrTotal > 0
+                      ? `₹${fmt(officialCrTotal)}${form.officialCrEntries.length > 0 ? ` (${form.officialCrEntries.length} entries)` : ""}`
+                      : "Enter official credit by person…"}
+                  </span>
+                  <span style={{ color: "var(--accent-text)" }}>✎</span>
+                </button>
               </div>
               {/* Personal Cr popup */}
               <div>
@@ -1355,6 +1518,39 @@ function EntryModal({
           onSave={(rows) => {
             set("coffeeShopEntries", rows);
             setCoffeePopup(false);
+          }}
+        />
+      )}
+      {kitchenPopup && (
+        <PersonEntryPopup
+          title="Kitchen Sale Entries"
+          entries={form.kitchenSaleEntries}
+          onClose={() => setKitchenPopup(false)}
+          onSave={(rows) => {
+            set("kitchenSaleEntries", rows);
+            setKitchenPopup(false);
+          }}
+        />
+      )}
+      {officialPopup && (
+        <PersonEntryPopup
+          title="Official Credit Entries"
+          entries={form.officialCrEntries}
+          onClose={() => setOfficialPopup(false)}
+          onSave={(rows) => {
+            set("officialCrEntries", rows);
+            setOfficialPopup(false);
+          }}
+        />
+      )}
+      {cashToOfficePopup && (
+        <PersonEntryPopup
+          title="Cash to Office Entries"
+          entries={form.cashToOfficeEntries}
+          onClose={() => setCashToOfficePopup(false)}
+          onSave={(rows) => {
+            set("cashToOfficeEntries", rows);
+            setCashToOfficePopup(false);
           }}
         />
       )}
@@ -1788,7 +1984,7 @@ export default function Dashboard() {
                         "Total Sale",
                         "Total Cash",
                         "Cash Exp.",
-                        "Surplus / Deficit",
+                        "Profit / Loss",
                         "Days",
                         "",
                       ].map((h) => (
@@ -2112,13 +2308,67 @@ export default function Dashboard() {
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-primary)" }}
                             >
-                              {fmt(row.kitchenSale)}
+                              {(row.kitchenSaleEntries || []).length > 0 ? (
+                                <button
+                                  type="button"
+                                  title="Kitchen Sale = sum of kitchen sale entry amounts"
+                                  onClick={() =>
+                                    setBreakdownModal({
+                                      title: "Kitchen Sale Breakdown",
+                                      items: row.kitchenSaleEntries,
+                                    })
+                                  }
+                                  className="group transition-all duration-200"
+                                  style={{
+                                    color: "var(--text-primary)",
+                                    background: "transparent",
+                                    border: "none",
+                                    padding: 0,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
+                                    {fmt(row.kitchenSale)}
+                                  </span>
+                                </button>
+                              ) : (
+                                <span title="Kitchen Sale = sum of kitchen sale entry amounts">
+                                  {fmt(row.kitchenSale)}
+                                </span>
+                              )}
                             </td>
                             <td
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-sec)" }}
                             >
-                              {fmt(row.officialCr)}
+                              {(row.officialCrEntries || []).length > 0 ? (
+                                <button
+                                  type="button"
+                                  title="Official Cr. = sum of official credit entry amounts"
+                                  onClick={() =>
+                                    setBreakdownModal({
+                                      title: "Official Credit Breakdown",
+                                      items: row.officialCrEntries,
+                                    })
+                                  }
+                                  className="group transition-all duration-200"
+                                  style={{
+                                    color: "var(--text-primary)",
+                                    background: "transparent",
+                                    border: "none",
+                                    padding: 0,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
+                                    {fmt(row.officialCr)}
+                                  </span>
+                                </button>
+                              ) : (
+                                <span title="Official Cr. = sum of official credit entry amounts">
+                                  {fmt(row.officialCr)}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-3 text-right tabular-nums">
                               {(row.personalCrEntries || []).length > 0 ? (
@@ -2202,12 +2452,14 @@ export default function Dashboard() {
                             <td
                               className="px-3 py-3 text-right tabular-nums font-semibold"
                               style={{ color: "var(--accent-text)" }}
+                              title="Total Sale = Kitchen Sale + Coffee Shop + Café Sale + Café Night - Official Cr - Personal Cr - UPI Received"
                             >
                               {fmt(row.totalSale)}
                             </td>
                             <td
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-primary)" }}
+                              title="Total Cash = Opening Cash + Total Sale"
                             >
                               {fmt(row.totalCash)}
                             </td>
@@ -2215,18 +2467,49 @@ export default function Dashboard() {
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-sec)" }}
                             >
-                              {fmt(row.cashToOffice)}
+                              {(row.cashToOfficeEntries || []).length > 0 ? (
+                                <button
+                                  type="button"
+                                  title="Cash to Office = sum of cash-to-office entry amounts"
+                                  onClick={() =>
+                                    setBreakdownModal({
+                                      title: "Cash to Office Breakdown",
+                                      items: row.cashToOfficeEntries,
+                                    })
+                                  }
+                                  className="group transition-all duration-200"
+                                  style={{
+                                    color: "var(--text-sec)",
+                                    background: "transparent",
+                                    border: "none",
+                                    padding: 0,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
+                                    {fmt(row.cashToOffice)}
+                                  </span>
+                                </button>
+                              ) : (
+                                <span>{fmt(row.cashToOffice)}</span>
+                              )}
                             </td>
                             <td className="px-3 py-3 text-right tabular-nums">
-                              {Object.keys(row.expenseEntries || {}).length > 0 ? (
+                              {Object.keys(row.expenseEntries || {}).length >
+                              0 ? (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     setBreakdownModal({
                                       title: "Cash Expenses Breakdown",
                                       items: Object.entries(
-                                        normalizeExpenses(row.expenseEntries || {}),
-                                      ).map(([name, amount]) => ({ name, amount })),
+                                        normalizeExpenses(
+                                          row.expenseEntries || {},
+                                        ),
+                                      ).map(([name, amount]) => ({
+                                        name,
+                                        amount,
+                                      })),
                                     })
                                   }
                                   className="group transition-all duration-200"

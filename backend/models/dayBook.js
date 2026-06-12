@@ -13,10 +13,13 @@ const dayBookSchema = new mongoose.Schema(
     date: { type: Date, required: true, unique: true },
     openingCash: { type: Number, default: 0 },
     cashToOffice: { type: Number, default: 0 },
+    cashToOfficeEntries: [personEntrySchema],
 
     // Sales
     kitchenSale: { type: Number, default: 0 },
+    kitchenSaleEntries: [personEntrySchema],
     officialCr: { type: Number, default: 0 },
+    officialCrEntries: [personEntrySchema],
     personalCr: { type: Number, default: 0 },
     personalCrEntries: [personEntrySchema],
 
