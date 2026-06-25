@@ -8,38 +8,68 @@ const personEntrySchema = new mongoose.Schema(
   { _id: false },
 );
 
+/* A "sale sub-tab" — e.g. under Kitchen Sale: "Kitchen Sale", "Lunch Special";
+   under Coffee Shop: "Coffee Shop", "Café Sale", "Café Night", or any custom name.
+   Each tab is either a single direct amount OR a by-person breakdown. */
+const saleSubTabSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    entries: [personEntrySchema],
+    directAmount: { type: Number, default: 0 },
+  },
+  { _id: false },
+);
+
 const dayBookSchema = new mongoose.Schema(
   {
     date: { type: Date, required: true, unique: true },
-    openingCash: { type: Number, default: 0 },
-    cashToOffice: { type: Number, default: 0 },
-    cashToOfficeEntries: [personEntrySchema],
 
-    // Sales
+    // ① Opening Cash — auto-filled from previous day's Cash In Hand
+    openingCash: { type: Number, default: 0 },
+
+    // ② Kitchen Sale — flexible sub-tabs (replaces the old single kitchenSale field)
     kitchenSale: { type: Number, default: 0 },
-    kitchenSaleEntries: [personEntrySchema],
+    kitchenSubTabs: [saleSubTabSchema],
+    kitchenSaleEntries: [personEntrySchema], // legacy by-person breakdown, kept for old records
+
+    // ③ Coffee Shop — flexible sub-tabs (replaces Café Sale / Café Night as fixed fields)
+    coffeeShop: { type: Number, default: 0 },
+    coffeeShopSale: { type: Number, default: 0 }, // legacy alias
+    coffeeSubTabs: [saleSubTabSchema],
+    coffeeShopEntries: [personEntrySchema], // legacy flat breakdown, kept for old records
+
+    // ⑤ ⑥ Credits
     officialCr: { type: Number, default: 0 },
     officialCrEntries: [personEntrySchema],
     personalCr: { type: Number, default: 0 },
     personalCrEntries: [personEntrySchema],
 
-    coffeeShop: { type: Number, default: 0 },
-    coffeeShopSale: { type: Number, default: 0 }, // legacy alias
-    coffeeShopEntries: [personEntrySchema],
-
-    cafeSale: { type: Number, default: 0 },
-    cafeNight: { type: Number, default: 0 },
+    // ⑦ UPI Received
     upiReceived: { type: Number, default: 0 },
 
+    // Legacy fields — no longer written to by new entries, kept so old records still read fine
+    cafeSale: { type: Number, default: 0 },
+    cafeNight: { type: Number, default: 0 },
+
+    // ④ Total Sale = Kitchen Sale + Coffee Shop (incl. all sub-tabs)
     totalSale: { type: Number, default: 0 },
+    // ⑧ Total Cash = Opening Cash + Total Sale − Official Cr − Personal Cr − UPI Received
     totalCash: { type: Number, default: 0 },
 
-    // Expenses
+    // ⑨ Cash to Office
+    cashToOffice: { type: Number, default: 0 },
+    cashToOfficeEntries: [personEntrySchema],
+
+    // ⑩ Cash Expenses
     expenseEntries: { type: Map, of: Number, default: {} },
     cashExpenses: { type: Number, default: 0 },
-    closingCash: { type: Number, default: 0 },
 
-    // Legacy expense breakdown (kept for backward compat)
+    // ⑪ Cash In Hand = Total Cash − Cash Expenses − Cash to Office
+    // becomes next day's Opening Cash
+    cashInHand: { type: Number, default: 0 },
+    closingCash: { type: Number, default: 0 }, // alias, kept for backward compatibility
+
+    // Legacy expense breakdown (kept for backward compat, no longer written to)
     expenses: {
       ration: { type: Number, default: 0 },
       paneer: { type: Number, default: 0 },

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
 import API from "../api/axios";
 
-/* ─── Month helpers ─────────────────────────────────────────────────────────── */
+/* ─── Month helpers ──────────────────────────────────────────────────────── */
 const MONTH_NAMES = [
   "Jan",
   "Feb",
@@ -52,11 +52,6 @@ const lastNMonths = (base, n) => {
   }
   return r;
 };
-const todayStr = () => {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
-};
-
 const yearsFrom = (sy, ek) => {
   const { year: ey } = parseKey(ek);
   const r = [];
@@ -69,6 +64,10 @@ const monthsForYear = (y, ek) => {
   const maxM = y === ey ? em : 12;
   for (let m = maxM; m >= 1; m--) r.push(toMonthKey(y, m));
   return r;
+};
+const todayStr = () => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
 };
 
 /* ─── Default expense categories ─────────────────────────────────────────── */
@@ -108,40 +107,49 @@ const fmt = (n) =>
     : new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-
-/* expenseEntries from MongoDB Map comes back as a plain object — normalize it */
 const normalizeExpenses = (raw) => {
   if (!raw || typeof raw !== "object") return {};
-  // Mongoose Map serializes as { key: value } plain object over JSON — fine
   return Object.fromEntries(
     Object.entries(raw).map(([k, v]) => [k, Number(v) || 0]),
   );
 };
-
 const sumExpenses = (obj = {}) =>
   Object.values(obj).reduce((s, v) => s + (Number(v) || 0), 0);
 const sumPersonEntries = (arr = []) =>
   arr.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+const subTabTotal = (t) =>
+  t.entries?.length > 0
+    ? sumPersonEntries(t.entries)
+    : Number(t.directAmount) || 0;
+const flattenSubTabs = (tabs = []) =>
+  tabs.flatMap((t) =>
+    t.entries?.length > 0
+      ? t.entries.map((e) => ({
+          name: `[${t.name}] ${e.name}`,
+          amount: e.amount,
+        }))
+      : [{ name: t.name, amount: t.directAmount }],
+  );
 
-const COLUMNS = [
+/* ─── COLUMN DEFINITIONS (order per spec) ─────────────────────────────────── */
+// date, openingCash, kitchenSale, coffeeShop, totalSale, officialCr, personalCr,
+// upiReceived, totalCash, cashToOffice, cashExpenses, cashInHand
+const ALL_COLS = [
   { key: "date", label: "Date", align: "left" },
   { key: "openingCash", label: "Op. Cash", align: "right" },
   { key: "kitchenSale", label: "Kitchen", align: "right" },
+  { key: "coffeeShop", label: "Coffee Shop", align: "right" },
+  { key: "totalSale", label: "Total Sale", align: "right" },
   { key: "officialCr", label: "Off. Cr", align: "right" },
   { key: "personalCr", label: "Per. Cr", align: "right" },
-  { key: "coffeeShop", label: "Coffee Shop", align: "right" },
-  { key: "cafeSale", label: "Café Sale", align: "right" },
-  { key: "cafeNight", label: "Café Night", align: "right" },
   { key: "upiReceived", label: "UPI Recv.", align: "right" },
-  { key: "totalSale", label: "Total Sale", align: "right" },
   { key: "totalCash", label: "Total Cash", align: "right" },
   { key: "cashToOffice", label: "Cash Office", align: "right" },
   { key: "cashExpenses", label: "Cash Exp.", align: "right" },
-  { key: "deficit", label: "Profit/Loss", align: "right" },
-  { key: "closingCash", label: "Closing", align: "right" },
+  { key: "cashInHand", label: "Cash In Hand", align: "right" },
 ];
 
-/* ─── Badge ───────────────────────────────────────────────────────────────── */
+/* ─── Shared UI ───────────────────────────────────────────────────────────── */
 function Badge({ children, variant = "default" }) {
   const s = {
     positive: {
@@ -170,7 +178,6 @@ function Badge({ children, variant = "default" }) {
   );
 }
 
-/* ─── StatCard ────────────────────────────────────────────────────────────── */
 function StatCard({ label, value, sub, accent, danger }) {
   const bg = accent
     ? "var(--accent-soft)"
@@ -210,7 +217,6 @@ function StatCard({ label, value, sub, accent, danger }) {
   );
 }
 
-/* ─── MonthTab ────────────────────────────────────────────────────────────── */
 function MonthTab({ mk, active, hasData, onClick }) {
   return (
     <button
@@ -234,7 +240,6 @@ function MonthTab({ mk, active, hasData, onClick }) {
   );
 }
 
-/* ─── MonthRow ────────────────────────────────────────────────────────────── */
 function MonthRow({ mk, data, loading, onClick }) {
   if (loading)
     return (
@@ -278,10 +283,11 @@ function MonthRow({ mk, data, loading, onClick }) {
       totalSale: a.totalSale + (e.totalSale || 0),
       totalCash: a.totalCash + (e.totalCash || 0),
       cashExpenses: a.cashExpenses + (e.cashExpenses || 0),
+      cashToOffice: a.cashToOffice + (e.cashToOffice || 0),
     }),
-    { totalSale: 0, totalCash: 0, cashExpenses: 0 },
+    { totalSale: 0, totalCash: 0, cashExpenses: 0, cashToOffice: 0 },
   );
-  const def = t.totalCash - t.cashExpenses;
+  const cashInHand = t.totalCash - t.cashExpenses - t.cashToOffice;
   return (
     <tr
       className="border-b cursor-pointer transition-colors"
@@ -317,7 +323,9 @@ function MonthRow({ mk, data, loading, onClick }) {
         {fmt(t.cashExpenses)}
       </td>
       <td className="px-4 py-3 tabular-nums font-bold">
-        <Badge variant={def >= 0 ? "positive" : "negative"}>₹{fmt(def)}</Badge>
+        <Badge variant={cashInHand >= 0 ? "positive" : "negative"}>
+          ₹{fmt(cashInHand)}
+        </Badge>
       </td>
       <td
         className="px-4 py-3 tabular-nums text-xs"
@@ -454,9 +462,7 @@ function PersonEntryPopup({ title, entries, onClose, onSave }) {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  onSave(rows.filter((r) => r.name || r.amount));
-                }}
+                onClick={() => onSave(rows.filter((r) => r.name || r.amount))}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
                 style={{ background: "var(--accent)" }}
               >
@@ -466,6 +472,244 @@ function PersonEntryPopup({ title, entries, onClose, onSave }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── SaleSubTabPopup — for kitchen / coffee shop sub-tabs ───────────────── */
+/**
+ * Shows existing named sub-tabs (e.g. "Café Sale", "Café Night", or any custom name)
+ * with amounts, lets user add custom tabs, and gives the total.
+ */
+function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
+  const [tabs, setTabs] = useState(
+    subTabs.length > 0
+      ? subTabs
+      : [{ name: title, entries: [], directAmount: "" }],
+  );
+  const [newTabName, setNewTabName] = useState("");
+  const [openEntryIdx, setOpenEntryIdx] = useState(null);
+
+  const addTab = () => {
+    const n = newTabName.trim();
+    if (!n) return;
+    setTabs((p) => [...p, { name: n, entries: [], directAmount: "" }]);
+    setNewTabName("");
+  };
+  const delTab = (i) => setTabs((p) => p.filter((_, j) => j !== i));
+  const updTabName = (i, v) =>
+    setTabs((p) => p.map((t, j) => (j === i ? { ...t, name: v } : t)));
+  const updDirect = (i, v) =>
+    setTabs((p) =>
+      p.map((t, j) => (j === i ? { ...t, directAmount: v, entries: [] } : t)),
+    );
+  const saveEntries = (i, rows) => {
+    setTabs((p) =>
+      p.map((t, j) =>
+        j === i ? { ...t, entries: rows, directAmount: "" } : t,
+      ),
+    );
+    setOpenEntryIdx(null);
+  };
+
+  const grandTotal = tabs.reduce((s, t) => s + subTabTotal(t), 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-60 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col border"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--border)",
+          boxShadow: "var(--shadow)",
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b shrink-0"
+          style={{ borderColor: "var(--border-sub)" }}
+        >
+          <h4
+            className="font-bold text-sm"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {title} — Sub-Tabs
+          </h4>
+          <button onClick={onClose} style={{ color: "var(--text-muted)" }}>
+            ✕
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-5 space-y-3">
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Add as many tabs as you need — e.g. "Café Sale", "Café Night", or
+            any custom name.
+          </p>
+          {tabs.map((tab, i) => (
+            <div
+              key={i}
+              className="rounded-xl border p-3 space-y-2"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border-sub)",
+              }}
+            >
+              <div className="flex gap-2 items-center">
+                <input
+                  placeholder="Tab name (e.g. Café Sale)"
+                  value={tab.name}
+                  onChange={(e) => updTabName(i, e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-lg border text-sm outline-none font-semibold"
+                  style={{
+                    background: "var(--bg-surface)",
+                    borderColor: "var(--border)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+                <span
+                  className="text-xs font-bold px-2"
+                  style={{ color: "var(--accent-text)" }}
+                >
+                  ₹{fmt(subTabTotal(tab))}
+                </span>
+                {tabs.length > 1 && (
+                  <button
+                    onClick={() => delTab(i)}
+                    className="text-xs px-2 py-1.5 rounded border"
+                    style={{
+                      borderColor: "var(--danger-border)",
+                      color: "var(--danger-text)",
+                      background: "var(--danger-soft)",
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {tab.entries?.length > 0 ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setOpenEntryIdx(i)}
+                      className="flex-1 px-3 py-1.5 rounded-lg text-xs border font-medium text-left"
+                      style={{
+                        borderColor: "var(--accent-border)",
+                        color: "var(--accent-text)",
+                        background: "var(--accent-soft)",
+                      }}
+                    >
+                      {tab.entries.length} entries ✎
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updDirect(i, "")}
+                      className="px-2 py-1.5 text-xs"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      ↺ Direct
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      placeholder="Direct amount"
+                      value={tab.directAmount}
+                      onChange={(e) => updDirect(i, e.target.value)}
+                      className="flex-1 px-3 py-1.5 rounded-lg border text-sm outline-none"
+                      style={{
+                        background: "var(--bg-surface)",
+                        borderColor: "var(--border)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setOpenEntryIdx(i)}
+                      className="px-3 py-1.5 rounded-lg text-xs border font-medium"
+                      style={{
+                        borderColor: "var(--accent-border)",
+                        color: "var(--accent-text)",
+                        background: "var(--accent-soft)",
+                      }}
+                    >
+                      By person ✎
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-2 pt-2">
+            <input
+              placeholder="New tab name…"
+              value={newTabName}
+              onChange={(e) => setNewTabName(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === "Enter" && (e.preventDefault(), addTab())
+              }
+              className="flex-1 px-3 py-1.5 rounded-lg border text-sm outline-none"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
+            />
+            <button
+              type="button"
+              onClick={addTab}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              + Add Tab
+            </button>
+          </div>
+        </div>
+        <div
+          className="px-5 py-4 border-t shrink-0 flex items-center justify-between"
+          style={{ borderColor: "var(--border-sub)" }}
+        >
+          <span
+            className="text-sm font-bold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Total: ₹{fmt(grandTotal)}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-xs border"
+              style={{
+                borderColor: "var(--border)",
+                color: "var(--text-sec)",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(tabs.filter((t) => t.name))}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+              style={{ background: "var(--accent)" }}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+      {openEntryIdx !== null && (
+        <PersonEntryPopup
+          title={`${tabs[openEntryIdx]?.name || "Tab"} — Person Entries`}
+          entries={tabs[openEntryIdx]?.entries || []}
+          onClose={() => setOpenEntryIdx(null)}
+          onSave={(rows) => saveEntries(openEntryIdx, rows)}
+        />
+      )}
     </div>
   );
 }
@@ -484,7 +728,6 @@ function ExpensePopup({ expenses, onClose, onSave }) {
   });
   const [vals, setVals] = useState(() => normalizeExpenses(expenses));
   const [newCat, setNewCat] = useState("");
-
   const addCat = () => {
     const c = newCat.trim();
     if (!c || cats.includes(c)) return;
@@ -504,7 +747,6 @@ function ExpensePopup({ expenses, onClose, onSave }) {
     });
   };
   const total = sumExpenses(vals);
-
   return (
     <div
       className="fixed inset-0 z-60 flex items-center justify-center p-4"
@@ -634,42 +876,125 @@ function ExpensePopup({ expenses, onClose, onSave }) {
   );
 }
 
-/* ─── DetailModal ─────────────────────────────────────────────────────────── */
+/* ─── BreakdownModal ──────────────────────────────────────────────────────── */
+function BreakdownModal({ title, items, onClose }) {
+  const total = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,.55)" }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <h3 className="font-bold" style={{ color: "var(--text-primary)" }}>
+            {title}
+          </h3>
+          <button onClick={onClose} style={{ color: "var(--text-muted)" }}>
+            ✕
+          </button>
+        </div>
+        <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
+          {items.map((item, i) => (
+            <div
+              key={i}
+              className="flex justify-between rounded-lg px-3 py-2"
+              style={{ background: "var(--bg-elevated)" }}
+            >
+              <span style={{ color: "var(--text-primary)" }}>{item.name}</span>
+              <span
+                className="font-semibold"
+                style={{ color: "var(--accent-text)" }}
+              >
+                ₹{fmt(item.amount)}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div
+          className="flex justify-between px-5 py-4 border-t font-bold"
+          style={{ borderColor: "var(--border-sub)" }}
+        >
+          <span style={{ color: "var(--text-primary)" }}>Total</span>
+          <span style={{ color: "var(--accent-text)" }}>₹{fmt(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──── DeleteModal ───────────────────────────────────────────────────────── */
+function DeleteModal({ entry, onCancel, onConfirm }) {
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,.55)" }}
+      onClick={(e) => e.target === e.currentTarget && onCancel()}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border p-5"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--border)",
+          boxShadow: "var(--shadow)",
+        }}
+      >
+        <h3
+          className="font-bold text-base mb-1"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Delete Entry?
+        </h3>
+        <p className="text-sm mb-5" style={{ color: "var(--text-sec)" }}>
+          This will permanently delete the entry for{" "}
+          <b>{fmtDate(entry.date)}</b>. This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-sm border font-medium"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-sec)",
+              background: "var(--bg-elevated)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+            style={{ background: "var(--danger-text)" }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── DetailModal (View) ──────────────────────────────────────────────────── */
 function DetailModal({ entry, onClose }) {
   if (!entry) return null;
-
   const expenses = normalizeExpenses(entry.expenseEntries);
   const expenseItems = Object.entries(expenses).filter(
-    ([, value]) => Number(value) > 0,
+    ([, v]) => Number(v) > 0,
   );
-
-  const sections = [
-    {
-      title: "Kitchen Sale",
-      amount: entry.kitchenSale,
-      items: entry.kitchenSaleEntries || [],
-    },
-    {
-      title: "Official Credit",
-      amount: entry.officialCr,
-      items: entry.officialCrEntries || [],
-    },
-    {
-      title: "Personal Credit",
-      amount: entry.personalCr,
-      items: entry.personalCrEntries || [],
-    },
-    {
-      title: "Coffee Shop",
-      amount: entry.coffeeShop || entry.coffeeShopSale,
-      items: entry.coffeeShopEntries || [],
-    },
-    {
-      title: "Cash To Office",
-      amount: entry.cashToOffice,
-      items: entry.cashToOfficeEntries || [],
-    },
-  ];
+  const cashInHand =
+    entry.cashInHand ??
+    (entry.totalCash || 0) -
+      (entry.cashExpenses || 0) -
+      (entry.cashToOffice || 0);
 
   return (
     <div
@@ -685,7 +1010,6 @@ function DetailModal({ entry, onClose }) {
           boxShadow: "var(--shadow)",
         }}
       >
-        {/* Header */}
         <div
           className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b"
           style={{
@@ -700,103 +1024,227 @@ function DetailModal({ entry, onClose }) {
             >
               Day Book Details
             </h2>
-
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               {fmtDate(entry.date)}
             </p>
           </div>
-
           <button
             onClick={onClose}
             className="w-10 h-10 rounded-xl border flex items-center justify-center"
             style={{
               borderColor: "var(--border)",
               background: "var(--bg-elevated)",
+              color: "var(--text-muted)",
             }}
           >
             ✕
           </button>
         </div>
-
         <div className="p-6 space-y-6">
-          {/* Summary */}
+          {/* Summary row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard label="Opening Cash" value={entry.openingCash} />
-
             <StatCard label="Total Sale" value={entry.totalSale} accent />
-
             <StatCard label="Total Cash" value={entry.totalCash} />
-
             <StatCard
-              label="Closing Cash"
-              value={entry.closingCash}
-              accent={entry.closingCash >= 0}
-              danger={entry.closingCash < 0}
+              label="Cash In Hand"
+              value={cashInHand}
+              accent={cashInHand >= 0}
+              danger={cashInHand < 0}
             />
           </div>
 
-          {/* Sales & Credits */}
-          <div>
-            <h3
-              className="font-bold text-base mb-4"
-              style={{ color: "var(--text-primary)" }}
-            >
-              Sales & Credit Breakdown
-            </h3>
-
-            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {sections.map((section) => (
-                <div
-                  key={section.title}
-                  className="rounded-2xl border p-4"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    borderColor: "var(--border-sub)",
-                  }}
-                >
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-semibold">{section.title}</h4>
-
-                    <span
-                      className="font-bold"
-                      style={{
-                        color: "var(--accent-text)",
-                      }}
-                    >
-                      ₹{fmt(section.amount)}
-                    </span>
-                  </div>
-
-                  {section.items.length > 0 ? (
-                    <div className="space-y-2">
-                      {section.items.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="flex justify-between text-sm rounded-lg px-3 py-2"
-                          style={{
-                            background: "var(--bg-surface)",
-                          }}
-                        >
-                          <span>{item.name}</span>
-                          <span className="font-medium">
-                            ₹{fmt(item.amount)}
-                          </span>
-                        </div>
-                      ))}
+          {/* Kitchen sale sub-tabs */}
+          {(entry.kitchenSubTabs || []).length > 0 && (
+            <div>
+              <h3
+                className="font-bold text-base mb-3"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Kitchen Sale Breakdown
+              </h3>
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {entry.kitchenSubTabs.map((tab, i) => (
+                  <div
+                    key={i}
+                    className="rounded-2xl border p-4"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border-sub)",
+                    }}
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <h4
+                        className="font-semibold"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {tab.name}
+                      </h4>
+                      <span
+                        className="font-bold"
+                        style={{ color: "var(--accent-text)" }}
+                      >
+                        ₹{fmt(subTabTotal(tab))}
+                      </span>
                     </div>
-                  ) : (
-                    <p
-                      className="text-xs"
-                      style={{
-                        color: "var(--text-muted)",
-                      }}
-                    >
-                      No entries available
-                    </p>
-                  )}
-                </div>
-              ))}
+                    {tab.entries?.length > 0 ? (
+                      <div className="space-y-2">
+                        {tab.entries.map((e, j) => (
+                          <div
+                            key={j}
+                            className="flex justify-between text-sm rounded-lg px-3 py-2"
+                            style={{ background: "var(--bg-surface)" }}
+                          >
+                            <span>{e.name}</span>
+                            <span className="font-medium">
+                              ₹{fmt(e.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p
+                        className="text-xs"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Direct amount entry
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
+
+          {/* Coffee shop sub-tabs */}
+          {(entry.coffeeSubTabs || []).length > 0 && (
+            <div>
+              <h3
+                className="font-bold text-base mb-3"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Coffee Shop Breakdown
+              </h3>
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {entry.coffeeSubTabs.map((tab, i) => (
+                  <div
+                    key={i}
+                    className="rounded-2xl border p-4"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border-sub)",
+                    }}
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <h4
+                        className="font-semibold"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {tab.name}
+                      </h4>
+                      <span
+                        className="font-bold"
+                        style={{ color: "var(--accent-text)" }}
+                      >
+                        ₹{fmt(subTabTotal(tab))}
+                      </span>
+                    </div>
+                    {tab.entries?.length > 0 ? (
+                      <div className="space-y-2">
+                        {tab.entries.map((e, j) => (
+                          <div
+                            key={j}
+                            className="flex justify-between text-sm rounded-lg px-3 py-2"
+                            style={{ background: "var(--bg-surface)" }}
+                          >
+                            <span>{e.name}</span>
+                            <span className="font-medium">
+                              ₹{fmt(e.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p
+                        className="text-xs"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Direct amount entry
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Credit entries */}
+          <h3
+                className="font-bold text-base mb-3"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Credit Entries
+              </h3>
+          <div className="grid md:grid-cols-3 gap-4">
+            {[
+              {
+                label: "Official Credit",
+                entries: entry.officialCrEntries || [],
+                total: entry.officialCr,
+              },
+              {
+                label: "Personal Credit",
+                entries: entry.personalCrEntries || [],
+                total: entry.personalCr,
+              },
+              {
+                label: "Cash to Office",
+                entries: entry.cashToOfficeEntries || [],
+                total: entry.cashToOffice,
+              },
+            ].map((s) => (
+              <div
+                key={s.label}
+                className="rounded-2xl border p-4"
+                style={{
+                  background: "var(--bg-elevated)",
+                  borderColor: "var(--border-sub)",
+                }}
+              >
+                <div className="flex justify-between items-center mb-3">
+                  <h4
+                    className="font-semibold text-sm"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {s.label}
+                  </h4>
+                  <span
+                    className="font-bold text-sm"
+                    style={{ color: "var(--accent-text)" }}
+                  >
+                    ₹{fmt(s.total)}
+                  </span>
+                </div>
+                {s.entries.length > 0 ? (
+                  <div className="space-y-1">
+                    {s.entries.map((e, j) => (
+                      <div
+                        key={j}
+                        className="flex justify-between text-xs rounded-lg px-2 py-1.5"
+                        style={{ background: "var(--bg-surface)" }}
+                      >
+                        <span>{e.name}</span>
+                        <span className="font-medium">₹{fmt(e.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    No entries
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
 
           {/* Expenses */}
@@ -808,113 +1256,85 @@ function DetailModal({ entry, onClose }) {
             }}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-base">Expense Breakdown</h3>
-
+              <h3
+                className="font-bold text-base"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Expense Breakdown
+              </h3>
               <span
                 className="font-bold"
-                style={{
-                  color: "var(--danger-text)",
-                }}
+                style={{ color: "var(--danger-text)" }}
               >
                 ₹{fmt(entry.cashExpenses)}
               </span>
             </div>
-
             {expenseItems.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                 {expenseItems.map(([key, value]) => (
                   <div
                     key={key}
                     className="rounded-xl p-3"
-                    style={{
-                      background: "var(--bg-surface)",
-                    }}
+                    style={{ background: "var(--bg-surface)" }}
                   >
                     <p
                       className="text-xs mb-1"
-                      style={{
-                        color: "var(--text-muted)",
-                      }}
+                      style={{ color: "var(--text-muted)" }}
                     >
                       {key}
                     </p>
-
-                    <p className="font-semibold">₹{fmt(value)}</p>
+                    <p
+                      className="font-semibold"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      ₹{fmt(value)}
+                    </p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p
-                className="text-sm"
-                style={{
-                  color: "var(--text-muted)",
-                }}
-              >
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
                 No expenses recorded.
               </p>
             )}
           </div>
 
-          {/* Formula Cards */}
+          {/* Formulas */}
           <div className="grid md:grid-cols-3 gap-4">
-            <div
-              className="rounded-2xl p-4"
-              style={{
-                background: "var(--bg-elevated)",
-              }}
-            >
-              <p
-                className="text-xs mb-2"
-                style={{
-                  color: "var(--text-muted)",
-                }}
+            {[
+              {
+                label: "Total Sale",
+                formula: "Kitchen Sale + Coffee Shop (incl. all sub-tabs)",
+              },
+              {
+                label: "Total Cash",
+                formula:
+                  "Opening Cash + Total Sale − Off. Cr − Per. Cr − UPI Received",
+              },
+              {
+                label: "Cash In Hand",
+                formula: "Total Cash − Cash Expenses − Cash to Office",
+              },
+            ].map((c) => (
+              <div
+                key={c.label}
+                className="rounded-2xl p-4"
+                style={{ background: "var(--bg-elevated)" }}
               >
-                Total Sale Formula
-              </p>
-
-              <p className="text-sm font-medium">
-                Kitchen + Coffee + Café Sale + Café Night − Official Cr −
-                Personal Cr − UPI
-              </p>
-            </div>
-
-            <div
-              className="rounded-2xl p-4"
-              style={{
-                background: "var(--bg-elevated)",
-              }}
-            >
-              <p
-                className="text-xs mb-2"
-                style={{
-                  color: "var(--text-muted)",
-                }}
-              >
-                Total Cash Formula
-              </p>
-
-              <p className="text-sm font-medium">Opening Cash + Total Sale</p>
-            </div>
-
-            <div
-              className="rounded-2xl p-4"
-              style={{
-                background: "var(--bg-elevated)",
-              }}
-            >
-              <p
-                className="text-xs mb-2"
-                style={{
-                  color: "var(--text-muted)",
-                }}
-              >
-                Closing Cash Formula
-              </p>
-
-              <p className="text-sm font-medium">
-                Total Cash − Expenses − Cash To Office
-              </p>
-            </div>
+                <p
+                  className="text-xs mb-2"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {c.label} Formula
+                </p>
+                <p
+                  className="text-sm font-medium"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {c.formula}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -923,26 +1343,36 @@ function DetailModal({ entry, onClose }) {
 }
 
 /* ─── EntryModal ──────────────────────────────────────────────────────────── */
-function EntryModal({
-  entry,
-  lastClosingCash,
-  existingDates,
-  onSave,
-  onClose,
-}) {
+function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const initForm = (e) => {
     if (e)
       return {
         date: e.date?.split("T")[0] ?? e.date,
         openingCash: e.openingCash ?? 0,
-        kitchenSale: e.kitchenSale ?? 0,
-        kitchenSaleEntries: e.kitchenSaleEntries || [],
-        officialCr: e.officialCr ?? 0,
+        // Fall back gracefully for legacy entries that only have a flat kitchenSale /
+        // kitchenSaleEntries (by-person), so editing an old record never drops data.
+        kitchenSubTabs: e.kitchenSubTabs || [
+          {
+            name: "Kitchen Sale",
+            entries: e.kitchenSaleEntries || [],
+            directAmount:
+              e.kitchenSaleEntries && e.kitchenSaleEntries.length > 0
+                ? ""
+                : (e.kitchenSale ?? ""),
+          },
+        ],
+        coffeeSubTabs: e.coffeeSubTabs || [
+          {
+            name: "Coffee Shop",
+            entries: e.coffeeShopEntries || [],
+            directAmount:
+              e.coffeeShopEntries && e.coffeeShopEntries.length > 0
+                ? ""
+                : (e.coffeeShop ?? e.coffeeShopSale ?? ""),
+          },
+        ],
         officialCrEntries: e.officialCrEntries || [],
         personalCrEntries: e.personalCrEntries || [],
-        coffeeShopEntries: e.coffeeShopEntries || [],
-        cafeSale: e.cafeSale ?? 0,
-        cafeNight: e.cafeNight ?? 0,
         upiReceived: e.upiReceived ?? 0,
         cashToOffice: e.cashToOffice ?? 0,
         cashToOfficeEntries: e.cashToOfficeEntries || [],
@@ -950,66 +1380,50 @@ function EntryModal({
       };
     return {
       date: todayStr(),
-      openingCash: lastClosingCash ?? 0,
-      cashToOffice: "",
-      cashToOfficeEntries: [],
-      kitchenSale: "",
-      kitchenSaleEntries: [],
-      officialCr: "",
+      openingCash: lastCashInHand ?? 0,
+      kitchenSubTabs: [{ name: "Kitchen Sale", entries: [], directAmount: "" }],
+      coffeeSubTabs: [{ name: "Coffee Shop", entries: [], directAmount: "" }],
       officialCrEntries: [],
       personalCrEntries: [],
-      coffeeShopEntries: [],
-      cafeSale: "",
-      cafeNight: "",
       upiReceived: "",
+      cashToOffice: "",
+      cashToOfficeEntries: [],
       expenseEntries: {},
     };
   };
 
   const [form, setForm] = useState(() => initForm(entry));
-  const [personalPopup, setPersonalPopup] = useState(false);
-  const [coffeePopup, setCoffeePopup] = useState(false);
   const [kitchenPopup, setKitchenPopup] = useState(false);
+  const [coffeePopup, setCoffeePopup] = useState(false);
   const [officialPopup, setOfficialPopup] = useState(false);
-  const [cashToOfficePopup, setCashToOfficePopup] = useState(false);
+  const [personalPopup, setPersonalPopup] = useState(false);
+  const [cashOfficePopup, setCashOfficePopup] = useState(false);
   const [expensePopup, setExpensePopup] = useState(false);
   const [dateError, setDateError] = useState("");
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  const kitchenSaleTotal =
-    form.kitchenSaleEntries.length > 0
-      ? sumPersonEntries(form.kitchenSaleEntries)
-      : Number(form.kitchenSale) || 0;
-  const officialCrTotal =
-    form.officialCrEntries.length > 0
-      ? sumPersonEntries(form.officialCrEntries)
-      : Number(form.officialCr) || 0;
-  const personalCrTotal = sumPersonEntries(form.personalCrEntries);
-  const coffeeTotal = sumPersonEntries(form.coffeeShopEntries);
-  const cashToOfficeTotal =
+  const kitchenSale = form.kitchenSubTabs.reduce(
+    (s, t) => s + subTabTotal(t),
+    0,
+  );
+  const coffeeShop = form.coffeeSubTabs.reduce((s, t) => s + subTabTotal(t), 0);
+  const officialCr = sumPersonEntries(form.officialCrEntries);
+  const personalCr = sumPersonEntries(form.personalCrEntries);
+  const upiReceived = Number(form.upiReceived) || 0;
+  const cashToOffice =
     form.cashToOfficeEntries.length > 0
       ? sumPersonEntries(form.cashToOfficeEntries)
       : Number(form.cashToOffice) || 0;
-  const totalSale =
-    kitchenSaleTotal +
-    coffeeTotal +
-    (Number(form.cafeSale) || 0) +
-    (Number(form.cafeNight) || 0) -
-    officialCrTotal -
-    personalCrTotal -
-    (Number(form.upiReceived) || 0);
-  const totalCash =
-    (Number(form.openingCash) || 0) +
-    kitchenSaleTotal +
-    officialCrTotal +
-    personalCrTotal +
-    coffeeTotal +
-    (Number(form.cafeSale) || 0) +
-    (Number(form.cafeNight) || 0) -
-    (Number(form.upiReceived) || 0);
+  const openingCash = Number(form.openingCash) || 0;
   const cashExpenses = sumExpenses(form.expenseEntries);
-  const closingCash = totalCash - cashExpenses - cashToOfficeTotal;
 
-  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+  // ④ totalSale = sum of all sale tabs (kitchen + coffee + their sub-tabs)
+  const totalSale = kitchenSale + coffeeShop;
+  // ⑧ totalCash = openingCash + totalSale - officialCr - personalCr - upiReceived
+  const totalCash =
+    openingCash + totalSale - officialCr - personalCr - upiReceived;
+  // ⑪ cashInHand = totalCash - cashExpenses - cashToOffice (becomes next day's opening cash)
+  const cashInHand = totalCash - cashExpenses - cashToOffice;
 
   const handleDateChange = (v) => {
     if (!entry && existingDates.includes(v))
@@ -1023,43 +1437,68 @@ function EntryModal({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (dateError) return;
-    // Send expenseEntries as plain object — backend handles Map conversion
     const expObj = {};
     Object.entries(form.expenseEntries).forEach(([k, v]) => {
       if (Number(v) > 0) expObj[k] = Number(v);
     });
     onSave({
       date: form.date,
-      openingCash: Number(form.openingCash) || 0,
-      kitchenSale: kitchenSaleTotal,
-      kitchenSaleEntries: form.kitchenSaleEntries,
-      officialCr: officialCrTotal,
+      openingCash,
+      kitchenSubTabs: form.kitchenSubTabs,
+      kitchenSale,
+      kitchenSaleEntries: flattenSubTabsToEntries(form.kitchenSubTabs),
+      coffeeSubTabs: form.coffeeSubTabs,
+      coffeeShop,
+      coffeeShopSale: coffeeShop,
+      coffeeShopEntries: flattenSubTabsToEntries(form.coffeeSubTabs),
+      officialCr,
       officialCrEntries: form.officialCrEntries,
+      personalCr,
       personalCrEntries: form.personalCrEntries,
-      personalCr: personalCrTotal,
-      coffeeShopEntries: form.coffeeShopEntries,
-      coffeeShop: coffeeTotal,
-      coffeeShopSale: coffeeTotal,
-      cafeSale: Number(form.cafeSale) || 0,
-      cafeNight: Number(form.cafeNight) || 0,
-      upiReceived: Number(form.upiReceived) || 0,
-      cashToOffice: cashToOfficeTotal,
+      upiReceived,
+      cashToOffice,
       cashToOfficeEntries: form.cashToOfficeEntries,
       totalSale,
       totalCash,
       expenseEntries: expObj,
       cashExpenses,
-      closingCash,
+      cashInHand,
+      closingCash: cashInHand,
     });
   };
 
-  const inputCls = "w-full px-3 py-2 rounded-lg border text-sm outline-none";
-  const inputStyle = {
+  const inp = "w-full px-3 py-2 rounded-lg border text-sm outline-none";
+  const is = {
     background: "var(--bg-elevated)",
     borderColor: "var(--border)",
     color: "var(--text-primary)",
   };
-  const labelStyle = { color: "var(--text-sec)" };
+  const ls = { color: "var(--text-sec)" };
+
+  const BtnField = ({ label, total, count, onClick, hint }) => (
+    <div>
+      <label className="block text-xs font-semibold mb-1.5" style={ls}>
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
+        style={{ ...is, borderColor: "var(--border)" }}
+      >
+        <span
+          style={{
+            color: total > 0 ? "var(--text-primary)" : "var(--text-muted)",
+          }}
+        >
+          {total > 0
+            ? `₹${fmt(total)}${count ? ` (${count} entries)` : ""}`
+            : hint || "Tap to enter…"}
+        </span>
+        <span style={{ color: "var(--accent-text)" }}>✎</span>
+      </button>
+    </div>
+  );
 
   return (
     <div
@@ -1075,7 +1514,6 @@ function EntryModal({
           boxShadow: "var(--shadow)",
         }}
       >
-        {/* Header */}
         <div
           className="flex items-center justify-between px-6 py-4 border-b sticky top-0 z-10"
           style={{
@@ -1099,13 +1537,10 @@ function EntryModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Date + Opening Cash */}
+          {/* ① Date + Opening Cash */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 sm:col-span-1">
-              <label
-                className="block text-xs font-semibold mb-1.5"
-                style={labelStyle}
-              >
+            <div>
+              <label className="block text-xs font-semibold mb-1.5" style={ls}>
                 Date
               </label>
               <input
@@ -1114,9 +1549,9 @@ function EntryModal({
                 max={todayStr()}
                 onChange={(e) => handleDateChange(e.target.value)}
                 required
-                className={inputCls}
+                className={inp}
                 style={{
-                  ...inputStyle,
+                  ...is,
                   borderColor: dateError
                     ? "var(--danger-text)"
                     : "var(--border)",
@@ -1132,229 +1567,108 @@ function EntryModal({
               )}
             </div>
             <div>
-              <label
-                className="block text-xs font-semibold mb-1.5"
-                style={labelStyle}
-              >
+              <label className="block text-xs font-semibold mb-1.5" style={ls}>
                 Opening Cash
               </label>
               <input
                 type="number"
                 value={form.openingCash}
                 onChange={(e) => set("openingCash", e.target.value)}
-                className={inputCls}
-                style={inputStyle}
+                className={inp}
+                style={is}
               />
-              {lastClosingCash !== null && !entry && (
+              {lastCashInHand !== null && !entry && (
                 <p
                   className="text-xs mt-1"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  Auto: last closing ₹{fmt(lastClosingCash)}
+                  Auto: last Cash-in-Hand ₹{fmt(lastCashInHand)}
                 </p>
               )}
             </div>
-            <div>
-              <label
-                className="block text-xs font-semibold mb-1.5"
-                style={labelStyle}
-              >
-                Cash to Office
-              </label>
-              <button
-                type="button"
-                onClick={() => setCashToOfficePopup(true)}
-                className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
-                style={{ ...inputStyle, borderColor: "var(--border)" }}
-              >
-                <span
-                  style={{
-                    color:
-                      cashToOfficeTotal > 0
-                        ? "var(--text-primary)"
-                        : "var(--text-muted)",
-                  }}
-                >
-                  {cashToOfficeTotal > 0
-                    ? `₹${fmt(cashToOfficeTotal)}${form.cashToOfficeEntries.length > 0 ? ` (${form.cashToOfficeEntries.length} entries)` : ""}`
-                    : "Enter cash-to-office entries…"}
-                </span>
-                <span style={{ color: "var(--accent-text)" }}>✎</span>
-              </button>
-              <p
-                className="text-xs mt-1"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Amount remitted to office; excluded from closing/opening cash.
-              </p>
-            </div>
           </div>
 
-          {/* Sales */}
+          {/* ② ③ SALES section */}
           <div>
             <p
               className="text-xs font-bold uppercase tracking-widest mb-3"
               style={{ color: "var(--text-muted)" }}
             >
-              Sales
+              Sales (click to manage sub-tabs)
             </p>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
-                >
-                  Kitchen Sale
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setKitchenPopup(true)}
-                  className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
-                  style={{
-                    ...inputStyle,
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  <span
-                    style={{
-                      color:
-                        kitchenSaleTotal > 0
-                          ? "var(--text-primary)"
-                          : "var(--text-muted)",
-                    }}
-                  >
-                    {kitchenSaleTotal > 0
-                      ? `₹${fmt(kitchenSaleTotal)}${form.kitchenSaleEntries.length > 0 ? ` (${form.kitchenSaleEntries.length} entries)` : ""}`
-                      : "Enter kitchen sale by person…"}
-                  </span>
-                  <span style={{ color: "var(--accent-text)" }}>✎</span>
-                </button>
-              </div>
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
-                >
-                  Official Cr.
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setOfficialPopup(true)}
-                  className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
-                  style={{
-                    ...inputStyle,
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  <span
-                    style={{
-                      color:
-                        officialCrTotal > 0
-                          ? "var(--text-primary)"
-                          : "var(--text-muted)",
-                    }}
-                  >
-                    {officialCrTotal > 0
-                      ? `₹${fmt(officialCrTotal)}${form.officialCrEntries.length > 0 ? ` (${form.officialCrEntries.length} entries)` : ""}`
-                      : "Enter official credit by person…"}
-                  </span>
-                  <span style={{ color: "var(--accent-text)" }}>✎</span>
-                </button>
-              </div>
-              {/* Personal Cr popup */}
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
-                >
-                  Personal Cr.
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setPersonalPopup(true)}
-                  className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
-                  style={{ ...inputStyle, borderColor: "var(--border)" }}
-                >
-                  <span
-                    style={{
-                      color:
-                        personalCrTotal > 0
-                          ? "var(--text-primary)"
-                          : "var(--text-muted)",
-                    }}
-                  >
-                    {personalCrTotal > 0
-                      ? `₹${fmt(personalCrTotal)} (${form.personalCrEntries.length} entries)`
-                      : "Enter by person…"}
-                  </span>
-                  <span style={{ color: "var(--accent-text)" }}>✎</span>
-                </button>
-              </div>
-              {/* Coffee Shop popup */}
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
-                >
-                  Coffee Shop
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setCoffeePopup(true)}
-                  className="w-full px-3 py-2 rounded-lg border text-sm text-left flex items-center justify-between"
-                  style={{ ...inputStyle, borderColor: "var(--border)" }}
-                >
-                  <span
-                    style={{
-                      color:
-                        coffeeTotal > 0
-                          ? "var(--text-primary)"
-                          : "var(--text-muted)",
-                    }}
-                  >
-                    {coffeeTotal > 0
-                      ? `₹${fmt(coffeeTotal)} (${form.coffeeShopEntries.length} entries)`
-                      : "Enter by person…"}
-                  </span>
-                  <span style={{ color: "var(--accent-text)" }}>✎</span>
-                </button>
-              </div>
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
-                >
-                  Café Sale
-                </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.cafeSale}
-                  onChange={(e) => set("cafeSale", e.target.value)}
-                  className={inputCls}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
-                >
-                  Café Night
-                </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.cafeNight}
-                  onChange={(e) => set("cafeNight", e.target.value)}
-                  className={inputCls}
-                  style={inputStyle}
-                />
-              </div>
+              <BtnField
+                label=" Kitchen Sale"
+                total={kitchenSale}
+                count={null}
+                onClick={() => setKitchenPopup(true)}
+                hint="Manage kitchen sub-tabs…"
+              />
+              <BtnField
+                label="Coffee Shop"
+                total={coffeeShop}
+                count={null}
+                onClick={() => setCoffeePopup(true)}
+                hint="Manage coffee sub-tabs…"
+              />
+            </div>
+          </div>
+
+          {/* ④ Total Sale — auto */}
+          <div
+            className="rounded-xl px-4 py-3 flex items-center justify-between"
+            style={{
+              background: "var(--accent-soft)",
+              border: "1px solid var(--accent-border)",
+            }}
+          >
+            <span
+              className="text-xs font-bold uppercase tracking-widest"
+              style={{ color: "var(--accent-text)" }}
+            >
+              Total Sale (auto)
+              <p
+                className="text-[10px] mt-0.5 font-medium"
+                style={{ color: "var(--text-muted)" }}
+              >
+                summation of all the sales
+              </p>
+            </span>
+            <span
+              className="text-lg font-bold tabular-nums"
+              style={{ color: "var(--accent-text)" }}
+            >
+              ₹{fmt(totalSale)}
+            </span>
+          </div>
+
+          {/* ⑤ ⑥ ⑦ Credit deductions */}
+          <div>
+            <p
+              className="text-xs font-bold uppercase tracking-widest mb-3"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Credits & Deductions
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <BtnField
+                label="Official Cr."
+                total={officialCr}
+                count={form.officialCrEntries.length || null}
+                onClick={() => setOfficialPopup(true)}
+                hint="Enter by person…"
+              />
+              <BtnField
+                label="Personal Cr."
+                total={personalCr}
+                count={form.personalCrEntries.length || null}
+                onClick={() => setPersonalPopup(true)}
+                hint="Enter by person…"
+              />
               <div className="col-span-2 sm:col-span-1">
                 <label
                   className="block text-xs font-semibold mb-1.5"
-                  style={labelStyle}
+                  style={ls}
                 >
                   UPI Received
                 </label>
@@ -1363,55 +1677,65 @@ function EntryModal({
                   placeholder="0"
                   value={form.upiReceived}
                   onChange={(e) => set("upiReceived", e.target.value)}
-                  className={inputCls}
-                  style={inputStyle}
+                  className={inp}
+                  style={is}
                 />
               </div>
             </div>
           </div>
 
-          {/* Auto-calc preview */}
+          {/* ⑧ Total Cash — auto */}
           <div
-            className="grid grid-cols-3 gap-3 rounded-xl p-4"
+            className="rounded-xl px-4 py-3 flex items-center justify-between"
             style={{
               background: "var(--bg-elevated)",
-              border: "1px solid var(--border-sub)",
+              border: "1px solid var(--border)",
             }}
           >
-            {[
-              { label: "Total Sale", value: totalSale, accent: true },
-              { label: "Total Cash", value: totalCash },
-              {
-                label: "Closing Cash",
-                value: closingCash,
-                accent: closingCash >= 0,
-                danger: closingCash < 0,
-              },
-            ].map((c) => (
-              <div key={c.label} className="text-center">
-                <p
-                  className="text-xs mb-1"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {c.label}
-                </p>
-                <p
-                  className="text-base font-bold tabular-nums"
-                  style={{
-                    color: c.danger
-                      ? "var(--danger-text)"
-                      : c.accent
-                        ? "var(--accent-text)"
-                        : "var(--text-primary)",
-                  }}
-                >
-                  ₹{fmt(c.value)}
-                </p>
-              </div>
-            ))}
+            <div>
+              <span
+                className="text-xs font-bold uppercase tracking-widest"
+                style={{ color: "var(--accent-text)" }}
+              >
+                Total Cash (auto)
+              </span>
+              <p
+                className="text-xs mt-0.5"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Opening + Total Sale − Off.Cr − Per.Cr − UPI
+              </p>
+            </div>
+            <span
+              className="text-lg font-bold tabular-nums"
+              style={{ color: "var(--text-primary)" }}
+            >
+              ₹{fmt(totalCash)}
+            </span>
           </div>
 
-          {/* Expenses */}
+          {/* ⑨ Cash to Office */}
+          <div>
+            <p
+              className="text-xs font-bold uppercase tracking-widest mb-3"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Cash to Office
+            </p>
+            <BtnField
+              label="Cash to Office"
+              total={cashToOffice}
+              count={
+                form.cashToOfficeEntries.length > 0
+                  ? form.cashToOfficeEntries.length
+                  : null
+              }
+              onClick={() => setCashOfficePopup(true)}
+              hint="Enter cash remitted to office…"
+            />
+          </div>
+
+          {/* ⑩ Cash Expenses */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p
@@ -1425,7 +1749,7 @@ function EntryModal({
                   className="text-xs font-semibold"
                   style={{ color: "var(--danger-text)" }}
                 >
-                  Total: ₹{fmt(cashExpenses)}
+                  ₹{fmt(cashExpenses)}
                 </span>
               )}
             </div>
@@ -1470,7 +1794,46 @@ function EntryModal({
             )}
           </div>
 
-          {/* Submit */}
+          {/* ⑪ Cash In Hand — auto, becomes next day's opening cash */}
+          <div
+            className="rounded-xl px-4 py-4 border-2"
+            style={{
+              borderColor:
+                cashInHand >= 0
+                  ? "rgba(34,197,94,0.3)"
+                  : "var(--danger-border)",
+              background:
+                cashInHand >= 0 ? "rgba(34,197,94,0.05)" : "var(--danger-soft)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <span
+                  className="text-xs font-bold uppercase tracking-widest"
+                  style={{
+                    color: cashInHand >= 0 ? "#22c55e" : "var(--danger-text)",
+                  }}
+                >
+                  Cash In Hand (auto)
+                </span>
+                <p
+                  className="text-xs mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Total Cash − Cash Expenses − Cash to Office
+                </p>
+              </div>
+              <span
+                className="text-2xl font-black tabular-nums"
+                style={{
+                  color: cashInHand >= 0 ? "#22c55e" : "var(--danger-text)",
+                }}
+              >
+                ₹{fmt(cashInHand)}
+              </span>
+            </div>
+          </div>
+
           <div
             className="flex justify-end gap-2 pt-2 border-t"
             style={{ borderColor: "var(--border-sub)" }}
@@ -1499,42 +1862,31 @@ function EntryModal({
         </form>
       </div>
 
-      {personalPopup && (
-        <PersonEntryPopup
-          title="Personal Credit Entries"
-          entries={form.personalCrEntries}
-          onClose={() => setPersonalPopup(false)}
-          onSave={(rows) => {
-            set("personalCrEntries", rows);
-            setPersonalPopup(false);
+      {kitchenPopup && (
+        <SaleSubTabPopup
+          title="Kitchen Sale"
+          subTabs={form.kitchenSubTabs}
+          onClose={() => setKitchenPopup(false)}
+          onSave={(tabs) => {
+            set("kitchenSubTabs", tabs);
+            setKitchenPopup(false);
           }}
         />
       )}
       {coffeePopup && (
-        <PersonEntryPopup
-          title="Coffee Shop Entries"
-          entries={form.coffeeShopEntries}
+        <SaleSubTabPopup
+          title="Coffee Shop"
+          subTabs={form.coffeeSubTabs}
           onClose={() => setCoffeePopup(false)}
-          onSave={(rows) => {
-            set("coffeeShopEntries", rows);
+          onSave={(tabs) => {
+            set("coffeeSubTabs", tabs);
             setCoffeePopup(false);
-          }}
-        />
-      )}
-      {kitchenPopup && (
-        <PersonEntryPopup
-          title="Kitchen Sale Entries"
-          entries={form.kitchenSaleEntries}
-          onClose={() => setKitchenPopup(false)}
-          onSave={(rows) => {
-            set("kitchenSaleEntries", rows);
-            setKitchenPopup(false);
           }}
         />
       )}
       {officialPopup && (
         <PersonEntryPopup
-          title="Official Credit Entries"
+          title="Official Credit"
           entries={form.officialCrEntries}
           onClose={() => setOfficialPopup(false)}
           onSave={(rows) => {
@@ -1543,14 +1895,25 @@ function EntryModal({
           }}
         />
       )}
-      {cashToOfficePopup && (
+      {personalPopup && (
         <PersonEntryPopup
-          title="Cash to Office Entries"
+          title="Personal Credit"
+          entries={form.personalCrEntries}
+          onClose={() => setPersonalPopup(false)}
+          onSave={(rows) => {
+            set("personalCrEntries", rows);
+            setPersonalPopup(false);
+          }}
+        />
+      )}
+      {cashOfficePopup && (
+        <PersonEntryPopup
+          title="Cash to Office"
           entries={form.cashToOfficeEntries}
-          onClose={() => setCashToOfficePopup(false)}
+          onClose={() => setCashOfficePopup(false)}
           onSave={(rows) => {
             set("cashToOfficeEntries", rows);
-            setCashToOfficePopup(false);
+            setCashOfficePopup(false);
           }}
         />
       )}
@@ -1568,63 +1931,14 @@ function EntryModal({
   );
 }
 
-/* ─── BreakdownModal ──────────────────────────────────────────────────────────── */
-function BreakdownModal({ title, items, onClose }) {
-  const total = items.reduce(
-    (sum, item) => sum + (Number(item.amount) || 0),
-    0,
-  );
-
-  return (
-    <div
-      className="fixed inset-0 z-70 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,.55)" }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl border"
-        style={{
-          background: "var(--bg-surface)",
-          borderColor: "var(--border)",
-        }}
-      >
-        <div
-          className="flex items-center justify-between px-5 py-4 border-b-2"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <h3 className="font-bold">{title}</h3>
-
-          <button onClick={onClose}>✕</button>
-        </div>
-
-        <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
-          {items.map((item, i) => (
-            <div
-              key={i}
-              className="flex justify-between rounded-lg px-3 py-2"
-              style={{ background: "var(--bg-elevated)" }}
-            >
-              <span>{item.name}</span>
-              <span className="font-semibold">₹{fmt(item.amount)}</span>
-            </div>
-          ))}
-        </div>
-
-        <div
-          className="flex justify-between px-5 py-4 border-t font-bold"
-          style={{ borderColor: "var(--border-sub)" }}
-        >
-          <span>Total</span>
-          <span>₹{fmt(total)}</span>
-        </div>
-      </div>
-    </div>
-  );
+/* Flatten sub-tab person-entries into one legacy-compatible flat array (for old "*Entries" fields) */
+function flattenSubTabsToEntries(tabs = []) {
+  return tabs.flatMap((t) => (t.entries?.length > 0 ? t.entries : []));
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════
    MAIN DASHBOARD
-══════════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════════════════ */
 export default function Dashboard() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -1646,13 +1960,12 @@ export default function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [editEntry, setEditEntry] = useState(null);
   const [viewEntry, setViewEntry] = useState(null);
-  const [showViewModal, setShowViewModal] = useState(false);
   const [breakdownModal, setBreakdownModal] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
   const PAGE_SIZE = 10;
 
-  /* ── fetch one month ── */
   const fetchMonth = useCallback(async (mk) => {
-    // skip if already loaded and not forced
     setLoadingMap((p) => ({ ...p, [mk]: true }));
     try {
       const { data } = await API.get("/daybook", { params: { month: mk } });
@@ -1664,87 +1977,85 @@ export default function Dashboard() {
     }
   }, []);
 
-  /* on mount: fetch the 6 tab months in parallel (not ALL months from 2024) */
   useEffect(() => {
     TAB_MONTHS.forEach((mk) => fetchMonth(mk));
   }, []); // eslint-disable-line
-
-  /* when switching viewMonth, fetch if not yet loaded */
   useEffect(() => {
     if (!(viewMonth in allData) && !loadingMap[viewMonth])
       fetchMonth(viewMonth);
   }, [viewMonth]); // eslint-disable-line
-
-  /* when overviewYear changes, fetch all months for that year that aren't loaded */
   useEffect(() => {
     monthsForYear(overviewYear, currentMonthKey).forEach((mk) => {
       if (!(mk in allData) && !loadingMap[mk]) fetchMonth(mk);
     });
   }, [overviewYear]); // eslint-disable-line
 
-  /* ── derived ── */
   const entries = allData[viewMonth] || [];
   const overviewMks = monthsForYear(overviewYear, currentMonthKey);
-
   const existingDates = entries.map((e) => (e.date || "").split("T")[0]);
-  const lastClosingCash = (() => {
+
+  // Last Cash-in-Hand becomes next day's opening cash
+  const lastCashInHand = (() => {
     if (editEntry) return null;
     const s = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
-    return s.length > 0 ? (s[0].closingCash ?? null) : null;
+    if (!s.length) return null;
+    const last = s[0];
+    return last.cashInHand ?? last.closingCash ?? null;
   })();
 
-  const withDeficit = entries.map((e) => ({
-    ...e,
-    coffeeShop: e.coffeeShop ?? e.coffeeShopSale ?? 0,
-    expenseEntries: normalizeExpenses(e.expenseEntries),
-    deficit: (e.totalCash || 0) - (e.cashExpenses || 0),
-  }));
+  const withCalc = entries.map((e) => {
+    const coffeeShop = e.coffeeShop ?? e.coffeeShopSale ?? 0;
+    const cashInHand =
+      e.cashInHand ??
+      (e.totalCash || 0) - (e.cashExpenses || 0) - (e.cashToOffice || 0);
+    return {
+      ...e,
+      coffeeShop,
+      cashInHand,
+      expenseEntries: normalizeExpenses(e.expenseEntries),
+    };
+  });
 
-  const filtered = withDeficit.filter((e) =>
+  const filtered = withCalc.filter((e) =>
     fmtDate(e.date).toLowerCase().includes(search.toLowerCase()),
   );
-  const sorted2 = [...filtered].sort((a, b) => {
+  const sorted = [...filtered].sort((a, b) => {
     const av = a[sortKey],
       bv = b[sortKey];
     if (av < bv) return sortDir === "asc" ? -1 : 1;
     if (av > bv) return sortDir === "asc" ? 1 : -1;
     return 0;
   });
-  const totalPages = Math.ceil(sorted2.length / PAGE_SIZE);
-  const pageData = sorted2.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const pageData = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const totals = entries.reduce(
     (a, e) => ({
       kitchenSale: a.kitchenSale + (e.kitchenSale || 0),
+      coffeeShop: a.coffeeShop + (e.coffeeShop ?? e.coffeeShopSale ?? 0),
+      totalSale: a.totalSale + (e.totalSale || 0),
       officialCr: a.officialCr + (e.officialCr || 0),
       personalCr: a.personalCr + (e.personalCr || 0),
-      coffeeShop: a.coffeeShop + (e.coffeeShop ?? e.coffeeShopSale ?? 0),
-      cafeSale: a.cafeSale + (e.cafeSale || 0),
-      cafeNight: a.cafeNight + (e.cafeNight || 0),
       upiReceived: a.upiReceived + (e.upiReceived || 0),
-      totalSale: a.totalSale + (e.totalSale || 0),
       totalCash: a.totalCash + (e.totalCash || 0),
       cashToOffice: a.cashToOffice + (e.cashToOffice || 0),
       cashExpenses: a.cashExpenses + (e.cashExpenses || 0),
     }),
     {
       kitchenSale: 0,
+      coffeeShop: 0,
+      totalSale: 0,
       officialCr: 0,
       personalCr: 0,
-      coffeeShop: 0,
-      cafeSale: 0,
-      cafeNight: 0,
       upiReceived: 0,
-      totalSale: 0,
       totalCash: 0,
       cashToOffice: 0,
       cashExpenses: 0,
     },
   );
-  const monthDeficit =
+  const monthCashInHand =
     totals.totalCash - totals.cashExpenses - totals.cashToOffice;
 
-  /* ── handlers ── */
   const handleSort = (k) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -1753,7 +2064,6 @@ export default function Dashboard() {
     }
     setPage(1);
   };
-
   const goToMonth = (mk) => {
     setViewMonth(mk);
     setActiveTab(mk);
@@ -1768,7 +2078,7 @@ export default function Dashboard() {
         ? await API.put(`/daybook/${editEntry._id}`, formData)
         : await API.post("/daybook", formData);
       if (!data.success) {
-        console.error("Save error:", data.message);
+        alert("Save failed: " + data.message);
         return;
       }
       const mk = data.data.date.slice(0, 7);
@@ -1784,23 +2094,24 @@ export default function Dashboard() {
         };
       });
     } catch (err) {
-      const msg = err?.response?.data?.message || err.message;
-      alert("Save failed: " + msg);
+      alert("Save failed: " + (err?.response?.data?.message || err.message));
     }
     setShowModal(false);
     setEditEntry(null);
   };
 
   const handleDelete = async (entry) => {
-    if (!confirm(`Delete entry for ${fmtDate(entry.date)}?`)) return;
     try {
       await API.delete(`/daybook/${entry._id}`);
-    } catch {}
+    } catch (err) {
+      alert("Delete failed: " + (err?.response?.data?.message || err.message));
+    }
     const mk = entry.date.slice(0, 7);
     setAllData((p) => ({
       ...p,
       [mk]: (p[mk] || []).filter((e) => e._id !== entry._id),
     }));
+    setDeleteTarget(null);
   };
 
   const logout = () => {
@@ -1816,7 +2127,36 @@ export default function Dashboard() {
   })();
   const isDetailLoading = !!loadingMap[viewMonth];
 
-  /* ════════════════════════ RENDER ════════════════════════ */
+  /* ─── ClickableCell helper — accepts an optional title for the breakdown modal ── */
+  const ClickCell = ({ items, value, fallback, title }) => {
+    if (!items || items.length === 0)
+      return (
+        <span style={{ color: "var(--text-muted)" }}>
+          {fallback ?? fmt(value)}
+        </span>
+      );
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          setBreakdownModal({ title: title || "Breakdown", items })
+        }
+        style={{
+          color: "var(--text-primary)",
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+        }}
+        className="group"
+      >
+        <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
+          {fmt(value)}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div
       className="min-h-screen"
@@ -1859,7 +2199,7 @@ export default function Dashboard() {
           </span>
           <button
             onClick={toggleTheme}
-            className="w-8 h-8 rounded-lg flex items-center justify-center border transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center border"
             style={{
               borderColor: "var(--border)",
               background: "var(--bg-elevated)",
@@ -1885,12 +2225,12 @@ export default function Dashboard() {
       <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
         {/* Tab bar */}
         <div
-          className="flex items-center gap-0 border-b overflow-x-auto"
+          className="flex items-center border-b overflow-x-auto"
           style={{ borderColor: "var(--border)" }}
         >
           <button
             onClick={() => setActiveTab("overview")}
-            className="px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap"
+            className="px-4 py-2.5 text-sm font-semibold whitespace-nowrap"
             style={{
               color:
                 activeTab === "overview"
@@ -1984,7 +2324,7 @@ export default function Dashboard() {
                         "Total Sale",
                         "Total Cash",
                         "Cash Exp.",
-                        "Profit / Loss",
+                        "Cash In Hand",
                         "Days",
                         "",
                       ].map((h) => (
@@ -2021,7 +2361,6 @@ export default function Dashboard() {
         {/* ══ MONTH DETAIL ══ */}
         {activeTab !== "overview" && (
           <div className="space-y-5">
-            {/* Navigator */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
@@ -2138,11 +2477,11 @@ export default function Dashboard() {
                   sub="Coffee Shop revenue"
                 />
                 <StatCard
-                  label="Surplus / Deficit"
-                  value={monthDeficit}
-                  sub="Total Cash − Cash Exp."
-                  accent={monthDeficit >= 0}
-                  danger={monthDeficit < 0}
+                  label="Cash In Hand"
+                  value={monthCashInHand}
+                  sub="Cash − Exp − Office"
+                  accent={monthCashInHand >= 0}
+                  danger={monthCashInHand < 0}
                 />
               </div>
             )}
@@ -2176,31 +2515,50 @@ export default function Dashboard() {
                       : `${filtered.length} entries · click headers to sort`}
                   </p>
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search date…"
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setPage(1);
-                  }}
-                  className="text-sm px-3 py-1.5 rounded-lg border outline-none w-full sm:w-40"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    borderColor: "var(--border)",
-                    color: "var(--text-primary)",
-                  }}
-                />
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setSortKey("date");
+                      setSortDir("asc");
+                      setPage(1);
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-lg border font-medium whitespace-nowrap"
+                    style={{
+                      borderColor: "var(--border)",
+                      color: "var(--text-sec)",
+                      background: "var(--bg-elevated)",
+                    }}
+                  >
+                    ↺ Reset
+                  </button>
+                  <input
+                    type="text"
+                    placeholder="Search date…"
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setPage(1);
+                    }}
+                    className="text-sm px-3 py-1.5 rounded-lg border outline-none w-full sm:w-40"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                </div>
               </div>
 
               <div className="overflow-x-auto">
                 <table
                   className="w-full text-sm border-collapse"
-                  style={{ minWidth: "1300px" }}
+                  style={{ minWidth: "1380px" }}
                 >
                   <thead>
                     <tr style={{ background: "var(--bg-elevated)" }}>
-                      {COLUMNS.map((col) => (
+                      {ALL_COLS.map((col) => (
                         <th
                           key={col.key}
                           onClick={() => handleSort(col.key)}
@@ -2237,7 +2595,7 @@ export default function Dashboard() {
                           className="border-b animate-pulse"
                           style={{ borderColor: "var(--border-sub)" }}
                         >
-                          {Array.from({ length: COLUMNS.length + 1 }).map(
+                          {Array.from({ length: ALL_COLS.length + 1 }).map(
                             (_, j) => (
                               <td key={j} className="px-3 py-3">
                                 <span
@@ -2252,7 +2610,7 @@ export default function Dashboard() {
                     {!isDetailLoading && pageData.length === 0 && (
                       <tr>
                         <td
-                          colSpan={COLUMNS.length + 1}
+                          colSpan={ALL_COLS.length + 1}
                           className="text-center py-16"
                           style={{ color: "var(--text-muted)" }}
                         >
@@ -2262,8 +2620,7 @@ export default function Dashboard() {
                     )}
                     {!isDetailLoading &&
                       pageData.map((row, idx) => {
-                        const negClose = row.closingCash < 0,
-                          negDef = row.deficit < 0;
+                        const negCash = row.cashInHand < 0;
                         const highExp = row.cashExpenses > row.totalSale * 1.5;
                         return (
                           <tr
@@ -2293,6 +2650,7 @@ export default function Dashboard() {
                             >
                               {fmtDate(row.date)}
                             </td>
+                            {/* ① Opening Cash */}
                             <td
                               className="px-3 py-3 text-right tabular-nums"
                               style={{
@@ -2304,196 +2662,68 @@ export default function Dashboard() {
                             >
                               {fmt(row.openingCash)}
                             </td>
-                            <td
-                              className="px-3 py-3 text-right tabular-nums"
-                              style={{ color: "var(--text-primary)" }}
-                            >
-                              {(row.kitchenSaleEntries || []).length > 0 ? (
-                                <button
-                                  type="button"
-                                  title="Kitchen Sale = sum of kitchen sale entry amounts"
-                                  onClick={() =>
-                                    setBreakdownModal({
-                                      title: "Kitchen Sale Breakdown",
-                                      items: row.kitchenSaleEntries,
-                                    })
-                                  }
-                                  className="group transition-all duration-200"
-                                  style={{
-                                    color: "var(--text-primary)",
-                                    background: "transparent",
-                                    border: "none",
-                                    padding: 0,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
-                                    {fmt(row.kitchenSale)}
-                                  </span>
-                                </button>
-                              ) : (
-                                <span title="Kitchen Sale = sum of kitchen sale entry amounts">
-                                  {fmt(row.kitchenSale)}
-                                </span>
-                              )}
-                            </td>
-                            <td
-                              className="px-3 py-3 text-right tabular-nums"
-                              style={{ color: "var(--text-sec)" }}
-                            >
-                              {(row.officialCrEntries || []).length > 0 ? (
-                                <button
-                                  type="button"
-                                  title="Official Cr. = sum of official credit entry amounts"
-                                  onClick={() =>
-                                    setBreakdownModal({
-                                      title: "Official Credit Breakdown",
-                                      items: row.officialCrEntries,
-                                    })
-                                  }
-                                  className="group transition-all duration-200"
-                                  style={{
-                                    color: "var(--text-primary)",
-                                    background: "transparent",
-                                    border: "none",
-                                    padding: 0,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
-                                    {fmt(row.officialCr)}
-                                  </span>
-                                </button>
-                              ) : (
-                                <span title="Official Cr. = sum of official credit entry amounts">
-                                  {fmt(row.officialCr)}
-                                </span>
-                              )}
-                            </td>
+                            {/* ② Kitchen Sale */}
                             <td className="px-3 py-3 text-right tabular-nums">
-                              {(row.personalCrEntries || []).length > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setBreakdownModal({
-                                      title: "Personal Credit Breakdown",
-                                      items: row.personalCrEntries,
-                                    })
-                                  }
-                                  className="group transition-all duration-200"
-                                  style={{
-                                    color: "var(--text-primary)",
-                                    background: "transparent",
-                                    border: "none",
-                                    padding: 0,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
-                                    {fmt(
-                                      row.personalCr ??
-                                        sumPersonEntries(row.personalCrEntries),
-                                    )}
-                                  </span>
-                                </button>
-                              ) : (
-                                <span style={{ color: "var(--text-muted)" }}>
-                                  —
-                                </span>
-                              )}
+                              <ClickCell
+                                title="Kitchen Sale Breakdown"
+                                value={row.kitchenSale}
+                                items={flattenSubTabs(row.kitchenSubTabs || [])}
+                              />
                             </td>
+                            {/* ③ Coffee Shop */}
                             <td className="px-3 py-3 text-right tabular-nums">
-                              {(row.coffeeShopEntries || []).length > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setBreakdownModal({
-                                      title: "Coffee Shop Breakdown",
-                                      items: row.coffeeShopEntries,
-                                    })
-                                  }
-                                  className="group transition-all duration-200"
-                                  style={{
-                                    color: "var(--text-primary)",
-                                    background: "transparent",
-                                    border: "none",
-                                    padding: 0,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
-                                    {fmt(row.coffeeShop)}
-                                  </span>
-                                </button>
-                              ) : (
-                                <span style={{ color: "var(--text-primary)" }}>
-                                  {fmt(row.coffeeShop)}
-                                </span>
-                              )}
+                              <ClickCell
+                                title="Coffee Shop Breakdown"
+                                value={row.coffeeShop}
+                                items={flattenSubTabs(row.coffeeSubTabs || [])}
+                              />
                             </td>
+                            {/* ④ Total Sale */}
                             <td
-                              className="px-3 py-3 text-right tabular-nums"
-                              style={{ color: "var(--text-sec)" }}
+                              className="px-3 py-3 text-right tabular-nums font-semibold"
+                              style={{ color: "var(--accent-text)" }}
                             >
-                              {fmt(row.cafeSale)}
+                              {fmt(row.totalSale)}
                             </td>
-                            <td
-                              className="px-3 py-3 text-right tabular-nums"
-                              style={{ color: "var(--text-sec)" }}
-                            >
-                              {fmt(row.cafeNight)}
+                            {/* ⑤ Official Cr */}
+                            <td className="px-3 py-3 text-right tabular-nums">
+                              <ClickCell
+                                title="Official Credit Breakdown"
+                                value={row.officialCr}
+                                items={row.officialCrEntries || []}
+                              />
                             </td>
+                            {/* ⑥ Personal Cr */}
+                            <td className="px-3 py-3 text-right tabular-nums">
+                              <ClickCell
+                                title="Personal Credit Breakdown"
+                                value={row.personalCr}
+                                items={row.personalCrEntries || []}
+                              />
+                            </td>
+                            {/* ⑦ UPI */}
                             <td
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-sec)" }}
                             >
                               {fmt(row.upiReceived)}
                             </td>
-                            <td
-                              className="px-3 py-3 text-right tabular-nums font-semibold"
-                              style={{ color: "var(--accent-text)" }}
-                              title="Total Sale = Kitchen Sale + Coffee Shop + Café Sale + Café Night - Official Cr - Personal Cr - UPI Received"
-                            >
-                              {fmt(row.totalSale)}
-                            </td>
+                            {/* ⑧ Total Cash */}
                             <td
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-primary)" }}
-                              title="Total Cash = Opening Cash + Total Sale"
                             >
                               {fmt(row.totalCash)}
                             </td>
-                            <td
-                              className="px-3 py-3 text-right tabular-nums"
-                              style={{ color: "var(--text-sec)" }}
-                            >
-                              {(row.cashToOfficeEntries || []).length > 0 ? (
-                                <button
-                                  type="button"
-                                  title="Cash to Office = sum of cash-to-office entry amounts"
-                                  onClick={() =>
-                                    setBreakdownModal({
-                                      title: "Cash to Office Breakdown",
-                                      items: row.cashToOfficeEntries,
-                                    })
-                                  }
-                                  className="group transition-all duration-200"
-                                  style={{
-                                    color: "var(--text-sec)",
-                                    background: "transparent",
-                                    border: "none",
-                                    padding: 0,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
-                                    {fmt(row.cashToOffice)}
-                                  </span>
-                                </button>
-                              ) : (
-                                <span>{fmt(row.cashToOffice)}</span>
-                              )}
+                            {/* ⑨ Cash to Office */}
+                            <td className="px-3 py-3 text-right tabular-nums">
+                              <ClickCell
+                                title="Cash to Office Breakdown"
+                                value={row.cashToOffice}
+                                items={row.cashToOfficeEntries || []}
+                              />
                             </td>
+                            {/* ⑩ Cash Exp */}
                             <td className="px-3 py-3 text-right tabular-nums">
                               {Object.keys(row.expenseEntries || {}).length >
                               0 ? (
@@ -2503,27 +2733,25 @@ export default function Dashboard() {
                                     setBreakdownModal({
                                       title: "Cash Expenses Breakdown",
                                       items: Object.entries(
-                                        normalizeExpenses(
-                                          row.expenseEntries || {},
-                                        ),
-                                      ).map(([name, amount]) => ({
-                                        name,
-                                        amount,
-                                      })),
+                                        normalizeExpenses(row.expenseEntries),
+                                      )
+                                        .filter(([, v]) => Number(v) > 0)
+                                        .map(([k, v]) => ({
+                                          name: k,
+                                          amount: v,
+                                        })),
                                     })
                                   }
-                                  className="group transition-all duration-200"
+                                  className="group"
                                   style={{
-                                    color: highExp
-                                      ? "var(--danger-text)"
-                                      : "var(--text-primary)",
                                     background: "transparent",
                                     border: "none",
                                     padding: 0,
                                     cursor: "pointer",
+                                    color: "var(--danger-text)",
                                   }}
                                 >
-                                  <span className="border-b border-dotted font-bold border-transparent group-hover:border-current">
+                                  <span className="tabular-nums font-medium border-b border-dotted border-transparent group-hover:border-current">
                                     {fmt(row.cashExpenses)}
                                   </span>
                                 </button>
@@ -2537,24 +2765,17 @@ export default function Dashboard() {
                                 </span>
                               )}
                             </td>
-                            <td className="px-3 py-3 text-right tabular-nums font-semibold">
-                              <Badge variant={negDef ? "negative" : "positive"}>
-                                ₹{fmt(row.deficit)}
-                              </Badge>
-                            </td>
+                            {/* ⑪ Cash In Hand */}
                             <td className="px-3 py-3 text-right tabular-nums font-bold">
                               <Badge
-                                variant={negClose ? "negative" : "positive"}
+                                variant={negCash ? "negative" : "positive"}
                               >
-                                ₹{fmt(row.closingCash)}
+                                ₹{fmt(row.cashInHand)}
                               </Badge>
                             </td>
                             <td className="px-3 py-3 text-right whitespace-nowrap">
                               <button
-                                onClick={() => {
-                                  setViewEntry(row);
-                                  setShowViewModal(true);
-                                }}
+                                onClick={() => setViewEntry(row)}
                                 className="text-xs px-2 py-1 rounded-md border mr-1"
                                 style={{
                                   borderColor: "var(--border)",
@@ -2579,7 +2800,7 @@ export default function Dashboard() {
                                 Edit
                               </button>
                               <button
-                                onClick={() => handleDelete(row)}
+                                onClick={() => setDeleteTarget(row)}
                                 className="text-xs px-2 py-1 rounded-md border"
                                 style={{
                                   borderColor: "var(--danger-border)",
@@ -2620,22 +2841,35 @@ export default function Dashboard() {
                       >
                         {fmt(totals.kitchenSale)}
                       </td>
-                      <td className="px-3 py-3" />
-                      <td className="px-3 py-3" />
                       <td
                         className="px-3 py-3 text-right tabular-nums"
                         style={{ color: "var(--accent-text)" }}
                       >
                         {fmt(totals.coffeeShop)}
                       </td>
-                      <td className="px-3 py-3" />
-                      <td className="px-3 py-3" />
-                      <td className="px-3 py-3" />
                       <td
                         className="px-3 py-3 text-right tabular-nums"
                         style={{ color: "var(--accent-text)" }}
                       >
                         {fmt(totals.totalSale)}
+                      </td>
+                      <td
+                        className="px-3 py-3 text-right tabular-nums"
+                        style={{ color: "var(--text-sec)" }}
+                      >
+                        {fmt(totals.officialCr)}
+                      </td>
+                      <td
+                        className="px-3 py-3 text-right tabular-nums"
+                        style={{ color: "var(--text-sec)" }}
+                      >
+                        {fmt(totals.personalCr)}
+                      </td>
+                      <td
+                        className="px-3 py-3 text-right tabular-nums"
+                        style={{ color: "var(--text-sec)" }}
+                      >
+                        {fmt(totals.upiReceived)}
                       </td>
                       <td
                         className="px-3 py-3 text-right tabular-nums"
@@ -2657,12 +2891,13 @@ export default function Dashboard() {
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums font-bold">
                         <Badge
-                          variant={monthDeficit >= 0 ? "positive" : "negative"}
+                          variant={
+                            monthCashInHand >= 0 ? "positive" : "negative"
+                          }
                         >
-                          ₹{fmt(monthDeficit)}
+                          ₹{fmt(monthCashInHand)}
                         </Badge>
                       </td>
-                      <td className="px-3 py-3" />
                       <td />
                     </tr>
                   </tfoot>
@@ -2711,7 +2946,7 @@ export default function Dashboard() {
       {showModal && (
         <EntryModal
           entry={editEntry}
-          lastClosingCash={lastClosingCash}
+          lastCashInHand={lastCashInHand}
           existingDates={existingDates}
           onSave={handleSave}
           onClose={() => {
@@ -2720,17 +2955,21 @@ export default function Dashboard() {
           }}
         />
       )}
-      {showViewModal && viewEntry && (
-        <DetailModal
-          entry={viewEntry}
-          onClose={() => setShowViewModal(false)}
-        />
+      {viewEntry && (
+        <DetailModal entry={viewEntry} onClose={() => setViewEntry(null)} />
       )}
       {breakdownModal && (
         <BreakdownModal
           title={breakdownModal.title}
           items={breakdownModal.items}
           onClose={() => setBreakdownModal(null)}
+        />
+      )}
+      {deleteTarget && (
+        <DeleteModal
+          entry={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => handleDelete(deleteTarget)}
         />
       )}
     </div>

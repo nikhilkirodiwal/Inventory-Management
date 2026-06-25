@@ -1,36 +1,43 @@
 import DayBook from "../models/dayBook.js";
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
-const sumMap = (obj = {}) =>
-  Object.values(obj).reduce((s, v) => s + (Number(v) || 0), 0);
-
 const sumPersonEntries = (arr = []) =>
   arr.reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
+const sumMap = (obj = {}) =>
+  Object.values(obj).reduce((s, v) => s + (Number(v) || 0), 0);
+
+const tabTotal = (t) =>
+  Array.isArray(t.entries) && t.entries.length > 0
+    ? sumPersonEntries(t.entries)
+    : Number(t.directAmount) || 0;
+
 /**
- * Recompute all derived fields from raw inputs.
- * expenseEntries arrives as a plain object from JSON — Mongoose Map handles it.
+ * Recompute ALL derived fields from raw body.
+ * Formulas:
+ *   ④ totalSale  = kitchenSale + coffeeShop  (each already the sum of its sub-tabs)
+ *   ⑧ totalCash  = openingCash + totalSale − officialCr − personalCr − upiReceived
+ *   ⑪ cashInHand = totalCash − cashExpenses − cashToOffice  (→ next day's openingCash)
+ *   closingCash = cashInHand  (alias kept for any older code/reports still reading it)
  */
 const recompute = (body) => {
-  const openingCash = Number(body.openingCash) || 0;
-  const cafeSale = Number(body.cafeSale) || 0;
-  const cafeNight = Number(body.cafeNight) || 0;
-  const upiReceived = Number(body.upiReceived) || 0;
-
-  const cashToOfficeEntries = Array.isArray(body.cashToOfficeEntries)
-    ? body.cashToOfficeEntries
+  /* ② Kitchen sub-tabs */
+  const kitchenSubTabs = Array.isArray(body.kitchenSubTabs)
+    ? body.kitchenSubTabs
     : [];
-  const cashToOffice = cashToOfficeEntries.length
-    ? sumPersonEntries(cashToOfficeEntries)
-    : Number(body.cashToOffice) || 0;
-
-  const kitchenSaleEntries = Array.isArray(body.kitchenSaleEntries)
-    ? body.kitchenSaleEntries
-    : [];
-  const kitchenSale = kitchenSaleEntries.length
-    ? sumPersonEntries(kitchenSaleEntries)
+  const kitchenSale = kitchenSubTabs.length
+    ? kitchenSubTabs.reduce((s, t) => s + tabTotal(t), 0)
     : Number(body.kitchenSale) || 0;
 
+  /* ③ Coffee sub-tabs */
+  const coffeeSubTabs = Array.isArray(body.coffeeSubTabs)
+    ? body.coffeeSubTabs
+    : [];
+  const coffeeShop = coffeeSubTabs.length
+    ? coffeeSubTabs.reduce((s, t) => s + tabTotal(t), 0)
+    : Number(body.coffeeShop ?? body.coffeeShopSale) || 0;
+
+  /* ⑤ ⑥ Credits */
   const officialCrEntries = Array.isArray(body.officialCrEntries)
     ? body.officialCrEntries
     : [];
@@ -45,19 +52,22 @@ const recompute = (body) => {
     ? sumPersonEntries(personalCrEntries)
     : Number(body.personalCr) || 0;
 
-  const coffeeShopEntries = Array.isArray(body.coffeeShopEntries)
-    ? body.coffeeShopEntries
-    : [];
-  const coffeeShop = coffeeShopEntries.length
-    ? sumPersonEntries(coffeeShopEntries)
-    : Number(body.coffeeShop ?? body.coffeeShopSale) || 0;
+  /* ⑦ UPI */
+  const upiReceived = Number(body.upiReceived) || 0;
 
-  // expenseEntries: plain object from frontend — values may be strings
+  /* ⑨ Cash to office */
+  const cashToOfficeEntries = Array.isArray(body.cashToOfficeEntries)
+    ? body.cashToOfficeEntries
+    : [];
+  const cashToOffice = cashToOfficeEntries.length
+    ? sumPersonEntries(cashToOfficeEntries)
+    : Number(body.cashToOffice) || 0;
+
+  /* ⑩ Expenses */
   const rawExp =
     body.expenseEntries && typeof body.expenseEntries === "object"
       ? body.expenseEntries
       : {};
-  // Filter to only non-zero entries
   const expenseEntries = {};
   Object.entries(rawExp).forEach(([k, v]) => {
     const n = Number(v);
@@ -65,30 +75,26 @@ const recompute = (body) => {
   });
   const cashExpenses = sumMap(expenseEntries) || Number(body.cashExpenses) || 0;
 
-  const totalSale =
-    kitchenSale +
-    coffeeShop +
-    cafeSale +
-    cafeNight -
-    officialCr -
-    personalCr -
-    upiReceived;
+  /* ① Opening cash */
+  const openingCash = Number(body.openingCash) || 0;
+
+  /* ── Core formulas ── */
+  const totalSale = kitchenSale + coffeeShop;
   const totalCash =
-    openingCash +
-    kitchenSale +
-    officialCr +
-    personalCr +
-    coffeeShop +
-    cafeSale +
-    cafeNight -
-    upiReceived;
-  const closingCash = totalCash - cashExpenses - cashToOffice;
+    openingCash + totalSale - officialCr - personalCr - upiReceived;
+  const cashInHand = totalCash - cashExpenses - cashToOffice;
 
   return {
     openingCash,
 
+    kitchenSubTabs,
     kitchenSale,
-    kitchenSaleEntries,
+    kitchenSaleEntries: kitchenSubTabs.flatMap((t) => t.entries || []), // legacy flat copy
+
+    coffeeSubTabs,
+    coffeeShop,
+    coffeeShopSale: coffeeShop, // legacy alias
+    coffeeShopEntries: coffeeSubTabs.flatMap((t) => t.entries || []), // legacy flat copy
 
     officialCr,
     officialCrEntries,
@@ -96,28 +102,31 @@ const recompute = (body) => {
     personalCr,
     personalCrEntries,
 
-    coffeeShop,
-    coffeeShopSale: coffeeShop,
-    coffeeShopEntries,
-
-    cafeSale,
-    cafeNight,
     upiReceived,
 
     totalSale,
     totalCash,
 
-    expenseEntries,
-    cashExpenses,
-
     cashToOffice,
     cashToOfficeEntries,
 
-    closingCash,
+    expenseEntries,
+    cashExpenses,
+
+    cashInHand,
+    closingCash: cashInHand, // alias — next day opening cash
   };
 };
 
-/* ─── GET /api/daybook?month=2026-04 ─────────────────────────────────────── */
+/* ── serialize one Mongoose doc → plain object ────────────────────────────── */
+const serialize = (doc) => {
+  const obj = doc.toObject ? doc.toObject({ getters: false }) : { ...doc };
+  if (obj.expenseEntries instanceof Map)
+    obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+  return obj;
+};
+
+/* ─── GET /api/daybook?month=2026-05 ─────────────────────────────────────── */
 export const getEntries = async (req, res) => {
   try {
     const { month, page = 1, limit = 31 } = req.query;
@@ -125,58 +134,50 @@ export const getEntries = async (req, res) => {
 
     if (month) {
       const [year, mon] = month.split("-").map(Number);
-      const start = new Date(Date.UTC(year, mon - 1, 1));
-      const end = new Date(Date.UTC(year, mon, 1)); // exclusive
-      query.date = { $gte: start, $lt: end };
+      query.date = {
+        $gte: new Date(Date.UTC(year, mon - 1, 1)),
+        $lt: new Date(Date.UTC(year, mon, 1)),
+      };
     }
 
     const skip = (Number(page) - 1) * Number(limit);
-    const [entries, total] = await Promise.all([
+    const [docs, total] = await Promise.all([
       DayBook.find(query).sort({ date: 1 }).skip(skip).limit(Number(limit)),
       DayBook.countDocuments(query),
     ]);
 
-    // Serialize: convert Mongoose Map → plain object for expenseEntries
-    const serialized = entries.map((e) => {
-      const obj = e.toObject({ getters: false });
-      if (obj.expenseEntries instanceof Map) {
-        obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
-      }
-      return obj;
-    });
+    const data = docs.map(serialize);
 
-    const totals = serialized.reduce(
+    const totals = data.reduce(
       (acc, e) => ({
         kitchenSale: acc.kitchenSale + (e.kitchenSale || 0),
+        coffeeShop: acc.coffeeShop + (e.coffeeShop ?? e.coffeeShopSale ?? 0),
         officialCr: acc.officialCr + (e.officialCr || 0),
         personalCr: acc.personalCr + (e.personalCr || 0),
-        coffeeShop: acc.coffeeShop + (e.coffeeShop || e.coffeeShopSale || 0),
-        cafeSale: acc.cafeSale + (e.cafeSale || 0),
-        cafeNight: acc.cafeNight + (e.cafeNight || 0),
         upiReceived: acc.upiReceived + (e.upiReceived || 0),
         totalSale: acc.totalSale + (e.totalSale || 0),
         totalCash: acc.totalCash + (e.totalCash || 0),
-        cashExpenses: acc.cashExpenses + (e.cashExpenses || 0),
         cashToOffice: acc.cashToOffice + (e.cashToOffice || 0),
+        cashExpenses: acc.cashExpenses + (e.cashExpenses || 0),
+        cashInHand: acc.cashInHand + (e.cashInHand ?? e.closingCash ?? 0),
       }),
       {
         kitchenSale: 0,
+        coffeeShop: 0,
         officialCr: 0,
         personalCr: 0,
-        coffeeShop: 0,
-        cafeSale: 0,
-        cafeNight: 0,
         upiReceived: 0,
         totalSale: 0,
         totalCash: 0,
-        cashExpenses: 0,
         cashToOffice: 0,
+        cashExpenses: 0,
+        cashInHand: 0,
       },
     );
 
     res.json({
       success: true,
-      data: serialized,
+      data,
       totals,
       total,
       page: Number(page),
@@ -190,15 +191,12 @@ export const getEntries = async (req, res) => {
 /* ─── GET /api/daybook/:id ───────────────────────────────────────────────── */
 export const getEntry = async (req, res) => {
   try {
-    const entry = await DayBook.findById(req.params.id);
-    if (!entry)
+    const doc = await DayBook.findById(req.params.id);
+    if (!doc)
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
-    const obj = entry.toObject({ getters: false });
-    if (obj.expenseEntries instanceof Map)
-      obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
-    res.json({ success: true, data: obj });
+    res.json({ success: true, data: serialize(doc) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -207,7 +205,8 @@ export const getEntry = async (req, res) => {
 /* ─── POST /api/daybook ──────────────────────────────────────────────────── */
 export const createEntry = async (req, res) => {
   try {
-    const incomingDate = new Date(req.body.date);
+    // Block future dates
+    const incoming = new Date(req.body.date);
     const todayUTC = new Date(
       Date.UTC(
         new Date().getUTCFullYear(),
@@ -215,26 +214,25 @@ export const createEntry = async (req, res) => {
         new Date().getUTCDate(),
       ),
     );
-    if (incomingDate > todayUTC)
-      return res.status(400).json({
-        success: false,
-        message: "Cannot create an entry for a future date.",
-      });
+    if (incoming > todayUTC)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Cannot create an entry for a future date.",
+        });
+
     const computed = recompute(req.body);
-    const entry = await DayBook.create({
-      date: req.body.date,
-      ...computed,
-    });
-    const obj = entry.toObject({ getters: false });
-    if (obj.expenseEntries instanceof Map)
-      obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
-    res.status(201).json({ success: true, data: obj });
+    const doc = await DayBook.create({ date: req.body.date, ...computed });
+    res.status(201).json({ success: true, data: serialize(doc) });
   } catch (err) {
     if (err.code === 11000)
-      return res.status(400).json({
-        success: false,
-        message: "Entry for this date already exists.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Entry for this date already exists.",
+        });
     res.status(400).json({ success: false, message: err.message });
   }
 };
@@ -243,19 +241,16 @@ export const createEntry = async (req, res) => {
 export const updateEntry = async (req, res) => {
   try {
     const computed = recompute(req.body);
-    const entry = await DayBook.findByIdAndUpdate(
+    const doc = await DayBook.findByIdAndUpdate(
       req.params.id,
       { $set: computed },
       { new: true, runValidators: true },
     );
-    if (!entry)
+    if (!doc)
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
-    const obj = entry.toObject({ getters: false });
-    if (obj.expenseEntries instanceof Map)
-      obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
-    res.json({ success: true, data: obj });
+    res.json({ success: true, data: serialize(doc) });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
@@ -264,8 +259,8 @@ export const updateEntry = async (req, res) => {
 /* ─── DELETE /api/daybook/:id ────────────────────────────────────────────── */
 export const deleteEntry = async (req, res) => {
   try {
-    const entry = await DayBook.findByIdAndDelete(req.params.id);
-    if (!entry)
+    const doc = await DayBook.findByIdAndDelete(req.params.id);
+    if (!doc)
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
@@ -283,23 +278,17 @@ export const getMonthlySummary = async (req, res) => {
         $group: {
           _id: { year: { $year: "$date" }, month: { $month: "$date" } },
           totalSale: { $sum: "$totalSale" },
-          totalCash: { $sum: "$totalCash" },
-          cashExpenses: { $sum: "$cashExpenses" },
-          cashToOffice: { $sum: "$cashToOffice" },
           kitchenSale: { $sum: "$kitchenSale" },
+          coffeeShop: { $sum: "$coffeeShop" },
           officialCr: { $sum: "$officialCr" },
           personalCr: { $sum: "$personalCr" },
-          coffeeShop: { $sum: "$coffeeShop" },
           upiReceived: { $sum: "$upiReceived" },
-          lastClosing: { $last: "$closingCash" },
+          totalCash: { $sum: "$totalCash" },
+          cashToOffice: { $sum: "$cashToOffice" },
+          cashExpenses: { $sum: "$cashExpenses" },
+          cashInHand: { $sum: "$cashInHand" },
+          lastClosing: { $last: "$cashInHand" }, // next month's first opening cash
           days: { $sum: 1 },
-        },
-      },
-      {
-        $addFields: {
-          surplus: {
-            $subtract: ["$totalCash", "$cashExpenses", "$cashToOffice"],
-          },
         },
       },
       { $sort: { "_id.year": -1, "_id.month": -1 } },
