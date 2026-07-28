@@ -131,6 +131,18 @@ export const getEntries = async (req, res) => {
   try {
     const { month, page = 1, limit = 31 } = req.query;
     const query = {};
+    const { shop } = req.query;
+
+    if (req.user.role === "admin" || req.user.role === "staff") {
+      if (!req.user.shop) {
+        return res.status(403).json({ success: false, message: "Shop not assigned" });
+      }
+      query.shop = req.user.shop;
+    } else if (req.user.role === "superadmin") {
+      if (shop) query.shop = shop;
+    } else {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
 
     if (month) {
       const [year, mon] = month.split("-").map(Number);
@@ -196,6 +208,11 @@ export const getEntry = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
+
+    if ((req.user.role === "admin" || req.user.role === "staff") && String(doc.shop) !== String(req.user.shop)) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
     res.json({ success: true, data: serialize(doc) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -223,7 +240,20 @@ export const createEntry = async (req, res) => {
         });
 
     const computed = recompute(req.body);
-    const doc = await DayBook.create({ date: req.body.date, ...computed });
+    const payload = { date: req.body.date, ...computed };
+
+    if (req.user.role === "admin" || req.user.role === "staff") {
+      if (!req.user.shop) {
+        return res.status(403).json({ success: false, message: "Shop not assigned" });
+      }
+      payload.shop = req.user.shop;
+    } else if (req.user.role === "superadmin") {
+      if (req.body.shop) payload.shop = req.body.shop;
+    } else {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const doc = await DayBook.create(payload);
     res.status(201).json({ success: true, data: serialize(doc) });
   } catch (err) {
     if (err.code === 11000)
@@ -240,16 +270,28 @@ export const createEntry = async (req, res) => {
 /* ─── PUT /api/daybook/:id ───────────────────────────────────────────────── */
 export const updateEntry = async (req, res) => {
   try {
-    const computed = recompute(req.body);
-    const doc = await DayBook.findByIdAndUpdate(
-      req.params.id,
-      { $set: computed },
-      { new: true, runValidators: true },
-    );
-    if (!doc)
+    const existing = await DayBook.findById(req.params.id);
+    if (!existing)
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
+
+    if ((req.user.role === "admin" || req.user.role === "staff") && String(existing.shop) !== String(req.user.shop)) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const computed = recompute(req.body);
+    const setObj = { $set: computed };
+
+    if (req.user.role === "superadmin" && req.body.shop) {
+      setObj.$set.shop = req.body.shop;
+    }
+
+    const doc = await DayBook.findByIdAndUpdate(
+      req.params.id,
+      setObj,
+      { new: true, runValidators: true },
+    );
     res.json({ success: true, data: serialize(doc) });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -259,11 +301,17 @@ export const updateEntry = async (req, res) => {
 /* ─── DELETE /api/daybook/:id ────────────────────────────────────────────── */
 export const deleteEntry = async (req, res) => {
   try {
-    const doc = await DayBook.findByIdAndDelete(req.params.id);
+    const doc = await DayBook.findById(req.params.id);
     if (!doc)
       return res
         .status(404)
         .json({ success: false, message: "Entry not found" });
+
+    if ((req.user.role === "admin" || req.user.role === "staff") && String(doc.shop) !== String(req.user.shop)) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    await doc.deleteOne();
     res.json({ success: true, message: "Entry deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

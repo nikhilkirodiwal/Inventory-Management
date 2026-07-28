@@ -22,7 +22,8 @@ const saleSubTabSchema = new mongoose.Schema(
 
 const dayBookSchema = new mongoose.Schema(
   {
-    date: { type: Date, required: true, unique: true },
+    shop: { type: mongoose.Schema.Types.ObjectId, ref: "Shop", default: null },
+    date: { type: Date, required: true },
 
     // ① Opening Cash — auto-filled from previous day's Cash In Hand
     openingCash: { type: Number, default: 0 },
@@ -90,5 +91,7 @@ const dayBookSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+dayBookSchema.index({ shop: 1, date: 1 }, { unique: true });
 
 export default mongoose.model("DayBook", dayBookSchema);

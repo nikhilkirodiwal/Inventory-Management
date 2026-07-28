@@ -1180,11 +1180,11 @@ function DetailModal({ entry, onClose }) {
 
           {/* Credit entries */}
           <h3
-                className="font-bold text-base mb-3"
-                style={{ color: "var(--text-primary)" }}
-              >
-                Credit Entries
-              </h3>
+            className="font-bold text-base mb-3"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Credit Entries
+          </h3>
           <div className="grid md:grid-cols-3 gap-4">
             {[
               {
@@ -1950,6 +1950,7 @@ export default function Dashboard() {
 
   const [allData, setAllData] = useState({});
   const [loadingMap, setLoadingMap] = useState({});
+  const [shopInfo, setShopInfo] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [viewMonth, setViewMonth] = useState(currentMonthKey);
   const [overviewYear, setOverviewYear] = useState(today.getFullYear());
@@ -1962,20 +1963,34 @@ export default function Dashboard() {
   const [viewEntry, setViewEntry] = useState(null);
   const [breakdownModal, setBreakdownModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
-
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user"));
+    } catch {
+      return null;
+    }
+  });
   const PAGE_SIZE = 10;
 
-  const fetchMonth = useCallback(async (mk) => {
-    setLoadingMap((p) => ({ ...p, [mk]: true }));
-    try {
-      const { data } = await API.get("/daybook", { params: { month: mk } });
-      setAllData((p) => ({ ...p, [mk]: data.success ? data.data || [] : [] }));
-    } catch {
-      setAllData((p) => ({ ...p, [mk]: [] }));
-    } finally {
-      setLoadingMap((p) => ({ ...p, [mk]: false }));
-    }
-  }, []);
+  const fetchMonth = useCallback(
+    async (mk) => {
+      setLoadingMap((p) => ({ ...p, [mk]: true }));
+      try {
+        const params = { month: mk };
+        if (user?.role === "admin" && user?.shop) params.shop = user.shop;
+        const { data } = await API.get("/daybook", { params });
+        setAllData((p) => ({
+          ...p,
+          [mk]: data.success ? data.data || [] : [],
+        }));
+      } catch {
+        setAllData((p) => ({ ...p, [mk]: [] }));
+      } finally {
+        setLoadingMap((p) => ({ ...p, [mk]: false }));
+      }
+    },
+    [user?.role, user?.shop],
+  );
 
   useEffect(() => {
     TAB_MONTHS.forEach((mk) => fetchMonth(mk));
@@ -1989,6 +2004,20 @@ export default function Dashboard() {
       if (!(mk in allData) && !loadingMap[mk]) fetchMonth(mk);
     });
   }, [overviewYear]); // eslint-disable-line
+
+  useEffect(() => {
+    if (user?.role === "admin" && user?.shop) {
+      const fetchShop = async () => {
+        try {
+          const { data } = await API.get("/shops/me");
+          if (data.success) setShopInfo(data.data.shop);
+        } catch {
+          setShopInfo(null);
+        }
+      };
+      fetchShop();
+    }
+  }, [user?.role, user?.shop]);
 
   const entries = allData[viewMonth] || [];
   const overviewMks = monthsForYear(overviewYear, currentMonthKey);
@@ -2074,6 +2103,9 @@ export default function Dashboard() {
   const handleSave = async (formData) => {
     try {
       const isEdit = !!editEntry?._id;
+      if (user?.role === "admin" && user?.shop) {
+        formData.shop = user.shop;
+      }
       const { data } = isEdit
         ? await API.put(`/daybook/${editEntry._id}`, formData)
         : await API.post("/daybook", formData);
@@ -2118,13 +2150,7 @@ export default function Dashboard() {
     localStorage.clear();
     navigate("/login");
   };
-  const user = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("user"));
-    } catch {
-      return null;
-    }
-  })();
+
   const isDetailLoading = !!loadingMap[viewMonth];
 
   /* ─── ClickableCell helper — accepts an optional title for the breakdown modal ── */
@@ -2186,11 +2212,24 @@ export default function Dashboard() {
               Day Book
             </p>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Anand Trauma Centre
+              {shopInfo?.name || "Loading shop…"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <div>
+            <p
+              className="text-sm font-semibold"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {shopInfo?.name || "Day Book"}
+            </p>
+            {shopInfo?.address && (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {shopInfo.address}
+              </p>
+            )}
+          </div>
           <span
             className="hidden sm:block text-sm"
             style={{ color: "var(--text-sec)" }}

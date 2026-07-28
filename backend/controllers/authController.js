@@ -12,44 +12,9 @@ const generateToken = (id) => {
   );
 };
 
-const demoUser = {
-  name: "Demo User",
-  email: "demo@gmail.com",
-  password: "#Demo@123",
-};
-
-const ensureDemoUser = async () => {
-  const existingDemoUser = await User.findOne({
-    email: demoUser.email,
-  });
-
-  if (existingDemoUser) {
-    const passwordMatches = await bcrypt.compare(
-      demoUser.password,
-      existingDemoUser.password
-    );
-
-    if (!passwordMatches) {
-      existingDemoUser.password = await bcrypt.hash(demoUser.password, 10);
-      await existingDemoUser.save();
-    }
-
-    return existingDemoUser;
-  }
-
-  const hashedPassword = await bcrypt.hash(demoUser.password, 10);
-
-  return User.create({
-    name: demoUser.name,
-    email: demoUser.email,
-    password: hashedPassword,
-    role: "admin",
-  });
-};
-
 export const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password } = req.body || {};
 
     const existing = await User.findOne({ email });
 
@@ -89,18 +54,14 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    const email = req.body.email?.toLowerCase().trim();
-    const { password } = req.body;
+    const email = req.body?.email?.toLowerCase().trim();
+    const password = req.body?.password;
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: "Email and password are required",
       });
-    }
-
-    if (email === demoUser.email) {
-      await ensureDemoUser();
     }
 
     const user = await User.findOne({ email });
@@ -112,10 +73,7 @@ export const login = async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(
-      password,
-      user.password
-    );
+    const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -134,6 +92,7 @@ export const login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        shop: user.shop || null,
       },
     });
   } catch (error) {

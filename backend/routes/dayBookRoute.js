@@ -7,11 +7,11 @@ import {
   deleteEntry,
   getMonthlySummary,
 } from "../controllers/dayBookController.js";
-
-// Attach your auth middleware here if needed:
-// import { protect } from "../middleware/auth.js";
+import { protect } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
+
+router.use(protect);
 
 router.get("/summary/monthly", getMonthlySummary);
 router.route("/").get(getEntries).post(createEntry);
