@@ -7,7 +7,11 @@ import { connectDB } from "./db/dbconnection.js";
 import authRoute from "./routes/authRoute.js";
 import dayBookRoute from "./routes/dayBookRoute.js";
 import shopRoute from "./routes/shopRoute.js";
+import partnerRoute from "./routes/partnerRoute.js";
+import ledgerRoute from "./routes/ledgerRoute.js";
+import pnlRoute from "./routes/pnlRoute.js";
 import User from "./models/user.js";
+import Partner from "./models/partner.js";
 import bcrypt from "bcryptjs";
 
 dotenv.config();
@@ -48,8 +52,23 @@ const ensureSuperAdmin = async () => {
   }
 };
 
+// Ensure the three initial business partners exist
+// const ensurePartners = async () => {
+//   const names = ["Vijayant Kohli", "Shishir Arora", "S K Pahuja"];
+//   try {
+//     for (const name of names) {
+//       const existing = await Partner.findOne({ name });
+//       if (!existing) await Partner.create({ name });
+//     }
+//     console.log("Initial partners ensured.");
+//   } catch (err) {
+//     console.error("Error ensuring partners:", err.message);
+//   }
+// };
+
 const startServer = async () => {
   await ensureSuperAdmin();
+  // await ensurePartners();
 
   app.use(express.json());
 
@@ -63,6 +82,9 @@ const startServer = async () => {
   app.use("/api/auth", authRoute);
   app.use("/api/daybook", dayBookRoute);
   app.use("/api/shops", shopRoute);
+  app.use("/api/partners", partnerRoute);
+  app.use("/api/ledger", ledgerRoute);
+  app.use("/api/pnl", pnlRoute);
 
   app.get("/", (req, res) => {
     res.send("API Running");

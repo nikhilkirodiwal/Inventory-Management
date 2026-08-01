@@ -3,6 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import API from "../api/axios";
 import { useTheme } from "../context/ThemeContext";
+import Partners from "./Partners";
+import LedgerTab from "./LedgerTab";
+import ProfitLossView from "./ProfitLossView";
 
 const fmt = (n) =>
   n === undefined || n === null || isNaN(n)
@@ -23,6 +26,15 @@ const EMPTY_FORM = {
   adminEmail: "",
   adminPassword: "",
 };
+
+const TABS = [
+  { key: "shops", label: "Shops" },
+  { key: "partners", label: "Partners" },
+  { key: "salary", label: "Salary" },
+  { key: "adminExpense", label: "Admin Expense" },
+  { key: "patientBill", label: "Patient Bill" },
+  { key: "pnl", label: "Profit & Loss" },
+];
 
 /* ─── Create / Edit shop modal ────────────────────────────────────────────── */
 function ShopFormModal({ initial, onClose, onSubmit, saving }) {
@@ -383,13 +395,8 @@ function ShopCard({ shop, onView, onEdit, onDelete }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   MAIN — SuperAdminDashboard
-══════════════════════════════════════════════════════════════════════════ */
-export default function SuperAdminDashboard() {
-  const navigate = useNavigate();
-  const { theme, toggleTheme } = useTheme();
-
+/* ─── Shops tab content ───────────────────────────────────────────────────── */
+function ShopsTab({ navigate }) {
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -470,6 +477,214 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div
+          className="rounded-2xl px-5 py-4 border"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--border)",
+            boxShadow: "var(--shadow)",
+          }}
+        >
+          <p
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Shops
+          </p>
+          <p
+            className="text-2xl font-black mt-1"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {overview.totalShops}
+          </p>
+        </div>
+        <div
+          className="rounded-2xl px-5 py-4 border"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--border)",
+            boxShadow: "var(--shadow)",
+          }}
+        >
+          <p
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Total Admins
+          </p>
+          <p
+            className="text-2xl font-black mt-1"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {overview.totalAdmins}
+          </p>
+        </div>
+        <div
+          className="rounded-2xl px-5 py-4 border"
+          style={{
+            background: "var(--accent-soft)",
+            borderColor: "var(--accent-border)",
+            boxShadow: "var(--shadow)",
+          }}
+        >
+          <p
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--accent-text)" }}
+          >
+            Combined Lifetime Sales
+          </p>
+          <p
+            className="text-2xl font-black mt-1 tabular-nums"
+            style={{ color: "var(--accent-text)" }}
+          >
+            ₹{fmt(overview.totalSale)}
+          </p>
+        </div>
+        <div
+          className="rounded-2xl px-5 py-4 border"
+          style={{
+            background:
+              overview.totalCashInHand >= 0
+                ? "rgba(34,197,94,0.05)"
+                : "var(--danger-soft)",
+            borderColor:
+              overview.totalCashInHand >= 0
+                ? "rgba(34,197,94,0.3)"
+                : "var(--danger-border)",
+            boxShadow: "var(--shadow)",
+          }}
+        >
+          <p
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{
+              color:
+                overview.totalCashInHand >= 0
+                  ? "#22c55e"
+                  : "var(--danger-text)",
+            }}
+          >
+            Combined Cash In Hand
+          </p>
+          <p
+            className="text-2xl font-black mt-1 tabular-nums"
+            style={{
+              color:
+                overview.totalCashInHand >= 0
+                  ? "#22c55e"
+                  : "var(--danger-text)",
+            }}
+          >
+            ₹{fmt(overview.totalCashInHand)}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <input
+          type="text"
+          placeholder="Search shops…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="text-sm px-4 py-2.5 rounded-xl border outline-none w-full sm:w-64"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-primary)",
+          }}
+        />
+        <button
+          onClick={() => {
+            setEditingShop(null);
+            setShowForm(true);
+          }}
+          className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white whitespace-nowrap"
+          style={{ background: "var(--accent)" }}
+        >
+          + Add Shop
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="rounded-2xl border p-5 animate-pulse"
+              style={{
+                background: "var(--bg-surface)",
+                borderColor: "var(--border)",
+                height: "220px",
+              }}
+            />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div
+          className="rounded-2xl border p-10 text-center"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--border)",
+          }}
+        >
+          <p className="font-semibold" style={{ color: "var(--text-primary)" }}>
+            {shops.length === 0 ? "No shops yet" : "No shops match your search"}
+          </p>
+          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+            {shops.length === 0
+              ? "Add your first shop to get started."
+              : "Try a different search term."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((shop) => (
+            <ShopCard
+              key={shop._id}
+              shop={shop}
+              onView={() => navigate(`/superadmin/shops/${shop._id}`)}
+              onEdit={() => {
+                setEditingShop(shop);
+                setShowForm(true);
+              }}
+              onDelete={() => setDeleteTarget(shop)}
+            />
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <ShopFormModal
+          initial={editingShop}
+          saving={saving}
+          onClose={() => {
+            setShowForm(false);
+            setEditingShop(null);
+          }}
+          onSubmit={handleSubmit}
+        />
+      )}
+      {deleteTarget && (
+        <DeleteShopModal
+          shop={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN — SuperAdminDashboard
+══════════════════════════════════════════════════════════════════════════ */
+export default function SuperAdminDashboard() {
+  const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
+  const [activeTab, setActiveTab] = useState("shops");
+
   const logout = () => {
     localStorage.clear();
     navigate("/login");
@@ -533,210 +748,60 @@ export default function SuperAdminDashboard() {
         </div>
       </header>
 
-      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Overview stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div
-            className="rounded-2xl px-5 py-4 border"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border)",
-              boxShadow: "var(--shadow)",
-            }}
-          >
-            <p
-              className="text-xs font-semibold uppercase tracking-widest"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Shops
-            </p>
-            <p
-              className="text-2xl font-black mt-1"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {overview.totalShops}
-            </p>
-          </div>
-          <div
-            className="rounded-2xl px-5 py-4 border"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border)",
-              boxShadow: "var(--shadow)",
-            }}
-          >
-            <p
-              className="text-xs font-semibold uppercase tracking-widest"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Total Admins
-            </p>
-            <p
-              className="text-2xl font-black mt-1"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {overview.totalAdmins}
-            </p>
-          </div>
-          <div
-            className="rounded-2xl px-5 py-4 border"
-            style={{
-              background: "var(--accent-soft)",
-              borderColor: "var(--accent-border)",
-              boxShadow: "var(--shadow)",
-            }}
-          >
-            <p
-              className="text-xs font-semibold uppercase tracking-widest"
-              style={{ color: "var(--accent-text)" }}
-            >
-              Combined Lifetime Sales
-            </p>
-            <p
-              className="text-2xl font-black mt-1 tabular-nums"
-              style={{ color: "var(--accent-text)" }}
-            >
-              ₹{fmt(overview.totalSale)}
-            </p>
-          </div>
-          <div
-            className="rounded-2xl px-5 py-4 border"
-            style={{
-              background:
-                overview.totalCashInHand >= 0
-                  ? "rgba(34,197,94,0.05)"
-                  : "var(--danger-soft)",
-              borderColor:
-                overview.totalCashInHand >= 0
-                  ? "rgba(34,197,94,0.3)"
-                  : "var(--danger-border)",
-              boxShadow: "var(--shadow)",
-            }}
-          >
-            <p
-              className="text-xs font-semibold uppercase tracking-widest"
+      {/* Section tab bar */}
+      <div
+        className="sticky top-[57px] z-20 border-b overflow-x-auto"
+        style={{ background: "var(--bg-base)", borderColor: "var(--border)" }}
+      >
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex items-center gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className="px-4 py-2.5 text-sm font-semibold whitespace-nowrap"
               style={{
                 color:
-                  overview.totalCashInHand >= 0
-                    ? "#22c55e"
-                    : "var(--danger-text)",
+                  activeTab === t.key
+                    ? "var(--accent-text)"
+                    : "var(--text-muted)",
+                borderBottom:
+                  activeTab === t.key
+                    ? "2px solid var(--accent)"
+                    : "2px solid transparent",
               }}
             >
-              Combined Cash In Hand
-            </p>
-            <p
-              className="text-2xl font-black mt-1 tabular-nums"
-              style={{
-                color:
-                  overview.totalCashInHand >= 0
-                    ? "#22c55e"
-                    : "var(--danger-text)",
-              }}
-            >
-              ₹{fmt(overview.totalCashInHand)}
-            </p>
-          </div>
+              {t.label}
+            </button>
+          ))}
         </div>
+      </div>
 
-        {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <input
-            type="text"
-            placeholder="Search shops…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="text-sm px-4 py-2.5 rounded-xl border outline-none w-full sm:w-64"
-            style={{
-              background: "var(--bg-elevated)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-            }}
+      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6">
+        {activeTab === "shops" && <ShopsTab navigate={navigate} />}
+        {activeTab === "partners" && <Partners />}
+        {activeTab === "salary" && (
+          <LedgerTab
+            kind="salary"
+            title="Salary"
+            accentLabel="Staff salary payouts"
           />
-          <button
-            onClick={() => {
-              setEditingShop(null);
-              setShowForm(true);
-            }}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white whitespace-nowrap"
-            style={{ background: "var(--accent)" }}
-          >
-            + Add Shop
-          </button>
-        </div>
-
-        {/* Shop grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="rounded-2xl border p-5 animate-pulse"
-                style={{
-                  background: "var(--bg-surface)",
-                  borderColor: "var(--border)",
-                  height: "220px",
-                }}
-              />
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div
-            className="rounded-2xl border p-10 text-center"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border)",
-            }}
-          >
-            <p
-              className="font-semibold"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {shops.length === 0
-                ? "No shops yet"
-                : "No shops match your search"}
-            </p>
-            <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-              {shops.length === 0
-                ? "Add your first shop to get started."
-                : "Try a different search term."}
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((shop) => (
-              <ShopCard
-                key={shop._id}
-                shop={shop}
-                onView={() => navigate(`/superadmin/shops/${shop._id}`)}
-                onEdit={() => {
-                  setEditingShop(shop);
-                  setShowForm(true);
-                }}
-                onDelete={() => setDeleteTarget(shop)}
-              />
-            ))}
-          </div>
         )}
+        {activeTab === "adminExpense" && (
+          <LedgerTab
+            kind="adminExpense"
+            title="Admin Expense"
+            accentLabel="Business overhead expenses"
+          />
+        )}
+        {activeTab === "patientBill" && (
+          <LedgerTab
+            kind="patientBill"
+            title="Patient Bill"
+            accentLabel="Patient billing income"
+          />
+        )}
+        {activeTab === "pnl" && <ProfitLossView />}
       </main>
-
-      {showForm && (
-        <ShopFormModal
-          initial={editingShop}
-          saving={saving}
-          onClose={() => {
-            setShowForm(false);
-            setEditingShop(null);
-          }}
-          onSubmit={handleSubmit}
-        />
-      )}
-      {deleteTarget && (
-        <DeleteShopModal
-          shop={deleteTarget}
-          onCancel={() => setDeleteTarget(null)}
-          onConfirm={handleDelete}
-        />
-      )}
     </div>
   );
 }

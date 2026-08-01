@@ -4,6 +4,7 @@ import Login from "./components/Login";
 import Dashboard from "./pages/Dashboard";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import ShopDetailView from "./pages/ShopDetailView";
+import PartnerDetailView from "./pages/PartnerDetailView";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -55,6 +56,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <ShopDetailView />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/partners/:id"
+        element={
+          <ProtectedRoute>
+            <PartnerDetailView />
           </ProtectedRoute>
         }
       />
