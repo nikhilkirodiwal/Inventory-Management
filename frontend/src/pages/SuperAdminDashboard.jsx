@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import API from "../api/axios";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
 import Partners from "./Partners";
 import LedgerTab from "./LedgerTab";
 import ProfitLossView from "./ProfitLossView";
@@ -28,7 +29,7 @@ const EMPTY_FORM = {
 };
 
 const TABS = [
-  { key: "shops", label: "Shops" },
+  { key: "shops", label: "Sites" },
   { key: "partners", label: "Partners" },
   { key: "salary", label: "Salary" },
   { key: "adminExpense", label: "Admin Expense" },
@@ -64,7 +65,7 @@ function ShopFormModal({ initial, onClose, onSubmit, saving }) {
             className="font-bold text-base"
             style={{ color: "var(--text-primary)" }}
           >
-            {isEdit ? "Edit Shop" : "Add New Shop"}
+            {isEdit ? "Edit Site" : "Add New Site"}
           </h3>
           <button onClick={onClose} style={{ color: "var(--text-muted)" }}>
             ✕
@@ -82,7 +83,7 @@ function ShopFormModal({ initial, onClose, onSubmit, saving }) {
               className="block text-xs font-semibold mb-1.5"
               style={{ color: "var(--text-sec)" }}
             >
-              Shop Name
+              Site Name
             </label>
             <input
               required
@@ -145,7 +146,7 @@ function ShopFormModal({ initial, onClose, onSubmit, saving }) {
                 className="text-xs font-semibold uppercase tracking-widest"
                 style={{ color: "var(--text-muted)" }}
               >
-                Assign Shop Admin (optional)
+                Assign Site Admin (optional)
               </p>
               <input
                 value={form.adminEmail}
@@ -192,7 +193,7 @@ function ShopFormModal({ initial, onClose, onSubmit, saving }) {
               className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
               style={{ background: "var(--accent)" }}
             >
-              {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Shop"}
+              {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Site"}
             </button>
           </div>
         </form>
@@ -224,7 +225,7 @@ function DeleteShopModal({ shop, onCancel, onConfirm }) {
           Delete {shop.name}?
         </h3>
         <p className="text-sm mb-5" style={{ color: "var(--text-sec)" }}>
-          This permanently deletes the shop, unassigns its admins, and erases
+          This permanently deletes the site, unassigns its admins, and erases
           every daybook entry logged for it. This can't be undone.
         </p>
         <div className="flex justify-end gap-2">
@@ -254,7 +255,7 @@ function DeleteShopModal({ shop, onCancel, onConfirm }) {
 
 /* ─── Shop card ───────────────────────────────────────────────────────────── */
 function ShopCard({ shop, onView, onEdit, onDelete }) {
-  const positive = (shop.netProfit || 0) >= 0;
+  const plPositive = (shop.currentMonthProfitLoss || 0) >= 0;
   return (
     <div
       onClick={onView}
@@ -283,48 +284,56 @@ function ShopCard({ shop, onView, onEdit, onDelete }) {
         <span
           className="shrink-0 text-xs font-semibold px-2 py-1 rounded-full"
           style={{
-            background: positive ? "rgba(34,197,94,0.1)" : "var(--danger-soft)",
-            color: positive ? "#22c55e" : "var(--danger-text)",
-            border: `1px solid ${positive ? "rgba(34,197,94,0.2)" : "var(--danger-border)"}`,
+            background: plPositive
+              ? "rgba(34,197,94,0.1)"
+              : "var(--danger-soft)",
+            color: plPositive ? "#22c55e" : "var(--danger-text)",
+            border: `1px solid ${plPositive ? "rgba(34,197,94,0.2)" : "var(--danger-border)"}`,
           }}
+          title="This month's P&L: Total Sale + Patient Bill + UPI − Personal Cr − Salary − Expenses"
         >
-          {positive ? "▲" : "▼"} ₹{fmt(Math.abs(shop.netProfit || 0))}
+          {plPositive ? "▲" : "▼"} ₹
+          {fmt(Math.abs(shop.currentMonthProfitLoss || 0))} this mo.
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         <div
           className="rounded-xl px-3 py-2"
-          style={{ background: "var(--bg-elevated)" }}
+          style={{
+            background: plPositive
+              ? "rgba(34,197,94,0.08)"
+              : "var(--danger-soft)",
+          }}
         >
           <p
             className="text-[10px] uppercase tracking-wider font-semibold"
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: plPositive ? "#22c55e" : "var(--danger-text)" }}
           >
-            Cash In Hand
+            Profit & Loss
           </p>
           <p
             className="text-sm font-bold mt-0.5 tabular-nums"
-            style={{ color: "var(--text-primary)" }}
+            style={{ color: plPositive ? "#22c55e" : "var(--danger-text)" }}
           >
-            ₹{fmt(shop.cashInHand)}
+            ₹{fmt(shop.currentMonthProfitLoss)}
           </p>
         </div>
         <div
           className="rounded-xl px-3 py-2"
-          style={{ background: "var(--bg-elevated)" }}
+          style={{ background: "var(--accent-soft)" }}
         >
           <p
             className="text-[10px] uppercase tracking-wider font-semibold"
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: "var(--accent-text)" }}
           >
-            Total Sale
+            This Month Sale
           </p>
           <p
             className="text-sm font-bold mt-0.5 tabular-nums"
             style={{ color: "var(--accent-text)" }}
           >
-            ₹{fmt(shop.totalSale)}
+            ₹{fmt(shop.currentMonthTotalSale)}
           </p>
         </div>
         <div
@@ -335,13 +344,13 @@ function ShopCard({ shop, onView, onEdit, onDelete }) {
             className="text-[10px] uppercase tracking-wider font-semibold"
             style={{ color: "var(--text-muted)" }}
           >
-            Entries
+            Lifetime Sale
           </p>
           <p
             className="text-sm font-bold mt-0.5 tabular-nums"
             style={{ color: "var(--text-primary)" }}
           >
-            {shop.entryCount}
+            ₹{fmt(shop.totalSale)}
           </p>
         </div>
       </div>
@@ -411,7 +420,7 @@ function ShopsTab({ navigate }) {
       const { data } = await API.get("/shops");
       setShops(data.data || []);
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to load shops");
+      toast.error(err?.response?.data?.message || "Failed to load sites");
     } finally {
       setLoading(false);
     }
@@ -450,16 +459,16 @@ function ShopsTab({ navigate }) {
           address: form.address,
           contact: form.contact,
         });
-        toast.success("Shop updated");
+        toast.success("Site updated");
       } else {
         await API.post("/shops", form);
-        toast.success("Shop created");
+        toast.success("Site created");
       }
       setShowForm(false);
       setEditingShop(null);
       fetchShops();
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to save shop");
+      toast.error(err?.response?.data?.message || "Failed to save site");
     } finally {
       setSaving(false);
     }
@@ -468,10 +477,10 @@ function ShopsTab({ navigate }) {
   const handleDelete = async () => {
     try {
       await API.delete(`/shops/${deleteTarget._id}`);
-      toast.success("Shop deleted");
+      toast.success("Site deleted");
       fetchShops();
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to delete shop");
+      toast.error(err?.response?.data?.message || "Failed to delete site");
     } finally {
       setDeleteTarget(null);
     }
@@ -492,7 +501,7 @@ function ShopsTab({ navigate }) {
             className="text-xs font-semibold uppercase tracking-widest"
             style={{ color: "var(--text-muted)" }}
           >
-            Shops
+            Sites
           </p>
           <p
             className="text-2xl font-black mt-1"
@@ -585,7 +594,7 @@ function ShopsTab({ navigate }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <input
           type="text"
-          placeholder="Search shops…"
+          placeholder="Search sites…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="text-sm px-4 py-2.5 rounded-xl border outline-none w-full sm:w-64"
@@ -603,7 +612,7 @@ function ShopsTab({ navigate }) {
           className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white whitespace-nowrap"
           style={{ background: "var(--accent)" }}
         >
-          + Add Shop
+          + Add Site
         </button>
       </div>
 
@@ -630,11 +639,11 @@ function ShopsTab({ navigate }) {
           }}
         >
           <p className="font-semibold" style={{ color: "var(--text-primary)" }}>
-            {shops.length === 0 ? "No shops yet" : "No shops match your search"}
+            {shops.length === 0 ? "No sites yet" : "No sites match your search"}
           </p>
           <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
             {shops.length === 0
-              ? "Add your first shop to get started."
+              ? "Add your first site to get started."
               : "Try a different search term."}
           </p>
         </div>
@@ -682,11 +691,28 @@ function ShopsTab({ navigate }) {
 ══════════════════════════════════════════════════════════════════════════ */
 export default function SuperAdminDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { theme, toggleTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState("shops");
+  const { logout: authLogout } = useAuth();
+  const tabParam = searchParams.get("tab");
+  const activeTab = TABS.some((tab) => tab.key === tabParam)
+    ? tabParam
+    : "shops";
+
+  const setActiveTab = (tabKey) => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (tabKey === "shops") {
+      nextParams.delete("tab");
+    } else {
+      nextParams.set("tab", tabKey);
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const logout = () => {
-    localStorage.clear();
+    authLogout();
     navigate("/login");
   };
 
@@ -750,7 +776,7 @@ export default function SuperAdminDashboard() {
 
       {/* Section tab bar */}
       <div
-        className="sticky top-[57px] z-20 border-b overflow-x-auto"
+        className="sticky top-14.25 z-20 border-b overflow-x-auto"
         style={{ background: "var(--bg-base)", borderColor: "var(--border)" }}
       >
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex items-center gap-1">

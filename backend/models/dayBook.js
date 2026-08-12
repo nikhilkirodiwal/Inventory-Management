@@ -8,6 +8,20 @@ const personEntrySchema = new mongoose.Schema(
   { _id: false },
 );
 
+/* Personal Cr. entries need one more thing than a plain person-entry: how
+   much of that amount has actually been credited/settled back so far. Kept
+   as its own schema (rather than bolting onto personEntrySchema) so Official
+   Cr., Cash to Office, Salary and Advance — which don't need this — stay
+   unaffected. creditedAmount is clamped server-side to [0, amount]. */
+const personalCrEntrySchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    amount: { type: Number, default: 0 },
+    creditedAmount: { type: Number, default: 0 }, // how much of `amount` has been credited so far
+  },
+  { _id: false },
+);
+
 /* A "sale sub-tab" — e.g. under Kitchen Sale: "Kitchen Sale", "Lunch Special";
    under Coffee Shop: "Coffee Shop", "Café Sale", "Café Night", or any custom name.
    Each tab is either a single direct amount OR a by-person breakdown. */
@@ -43,7 +57,7 @@ const dayBookSchema = new mongoose.Schema(
     officialCr: { type: Number, default: 0 },
     officialCrEntries: [personEntrySchema],
     personalCr: { type: Number, default: 0 },
-    personalCrEntries: [personEntrySchema],
+    personalCrEntries: [personalCrEntrySchema], // by-person, each markable as credited or not
 
     // ⑦ UPI Received
     upiReceived: { type: Number, default: 0 },
@@ -61,9 +75,21 @@ const dayBookSchema = new mongoose.Schema(
     cashToOffice: { type: Number, default: 0 },
     cashToOfficeEntries: [personEntrySchema],
 
-    // ⑩ Cash Expenses
+    // Salary — pulled out of the generic expense map into its own by-person
+    // breakdown (who was paid, how much), while still counting toward Cash
+    // Expenses as a whole.
+    salary: { type: Number, default: 0 },
+    salaryEntries: [personEntrySchema],
+
+    // Advance — same treatment as Salary: own by-person breakdown, still
+    // rolled into Cash Expenses.
+    advance: { type: Number, default: 0 },
+    advanceEntries: [personEntrySchema],
+
+    // ⑩ Cash Expenses — the generic category map (Salary/Advance no longer
+    // live as keys in here; they're tracked above and added on top).
     expenseEntries: { type: Map, of: Number, default: {} },
-    cashExpenses: { type: Number, default: 0 },
+    cashExpenses: { type: Number, default: 0 }, // = sum(expenseEntries) + salary + advance
 
     // ⑪ Cash In Hand = Total Cash − Cash Expenses − Cash to Office
     // becomes next day's Opening Cash

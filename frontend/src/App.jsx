@@ -4,13 +4,15 @@ import Login from "./components/Login";
 import Dashboard from "./pages/Dashboard";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import ShopDetailView from "./pages/ShopDetailView";
-import PartnerDetailView from "./pages/PartnerDetailView";
+import PartnerShopsView from "./pages/PartnerShopsView";
+import PartnerShopDetailView from "./pages/PartnerShopDetailView";
+import CrDetailPage from "./pages/CrDetailPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
+import { useAuth } from "./context/AuthContext";
 
 export default function App() {
-  const token = localStorage.getItem("token");
-  const user = JSON.parse(localStorage.getItem("user") || "null");
+  const { token, user } = useAuth();
 
   return (
     <Routes>
@@ -42,6 +44,49 @@ export default function App() {
         }
       />
 
+      {/* Personal Cr. / Patient Bill / Salary — full pages (were popups), each
+          with their own back button to /dashboard */}
+
+      <Route
+        path="/dashboard/personal-cr"
+        element={
+          <ProtectedRoute>
+            <CrDetailPage
+              title="Personal Cr."
+              fieldKey="personalCr"
+              entriesKey="personalCrEntries"
+              showCredited
+            />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/dashboard/patient-bill"
+        element={
+          <ProtectedRoute>
+            <CrDetailPage
+              title="Patient Bill (Official Cr.)"
+              fieldKey="officialCr"
+              entriesKey="officialCrEntries"
+            />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/dashboard/salary"
+        element={
+          <ProtectedRoute>
+            <CrDetailPage
+              title="Salary"
+              fieldKey="salary"
+              entriesKey="salaryEntries"
+            />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/superadmin"
         element={
@@ -60,11 +105,22 @@ export default function App() {
         }
       />
 
+      {/* Partner drill-down: partner -> sites (this month) -> day-wise per site */}
+
       <Route
         path="/superadmin/partners/:id"
         element={
           <ProtectedRoute>
-            <PartnerDetailView />
+            <PartnerShopsView />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/partners/:id/shops/:shopId"
+        element={
+          <ProtectedRoute>
+            <PartnerShopDetailView />
           </ProtectedRoute>
         }
       />

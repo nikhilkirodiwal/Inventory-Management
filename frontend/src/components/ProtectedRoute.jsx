@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import API from "../api/axios";
+import { useAuth } from "../context/AuthContext";
 
 export default function ProtectedRoute({ children }) {
-  const token = localStorage.getItem("token");
+  const { token, logout, setAuthUser } = useAuth();
 
   const [status, setStatus] = useState(token ? "checking" : "unauthorized");
 
   useEffect(() => {
     if (!token) {
+      setStatus("unauthorized");
       return;
     }
 
@@ -17,14 +19,12 @@ export default function ProtectedRoute({ children }) {
     const verifyToken = async () => {
       try {
         const { data } = await API.get("/auth/me");
-
-        localStorage.setItem("user", JSON.stringify(data.user));
+        setAuthUser(data.user);
         if (isMounted) {
           setStatus("authorized");
         }
       } catch {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
+        logout();
         if (isMounted) {
           setStatus("unauthorized");
         }
@@ -36,10 +36,10 @@ export default function ProtectedRoute({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [token]);
+  }, [token]); // eslint-disable-line
 
   if (status === "checking") {
-    return <div>Loading...</div>
+    return <div>Loading...</div>;
   }
 
   if (status === "unauthorized") {
@@ -48,4 +48,3 @@ export default function ProtectedRoute({ children }) {
 
   return children;
 }
-

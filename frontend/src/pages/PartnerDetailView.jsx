@@ -485,7 +485,7 @@ export default function PartnerDetailView() {
     try {
       await API.delete(`/partners/${id}`);
       toast.success("Partner deleted");
-      navigate("/superadmin");
+      navigate("/superadmin?tab=partners");
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to delete partner");
       setShowDeletePartner(false);
@@ -510,7 +510,7 @@ export default function PartnerDetailView() {
       >
         <p style={{ color: "var(--danger-text)" }}>Partner not found</p>
         <button
-          onClick={() => navigate("/superadmin")}
+          onClick={() => navigate("/superadmin?tab=partners")}
           className="px-4 py-2 rounded-lg text-sm font-semibold"
           style={{ background: "var(--accent)", color: "#fff" }}
         >
@@ -535,7 +535,7 @@ export default function PartnerDetailView() {
       >
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/superadmin")}
+            onClick={() => navigate("/superadmin?tab=partners")}
             className="w-8 h-8 rounded-lg flex items-center justify-center border text-lg font-bold"
             style={{
               borderColor: "var(--border)",

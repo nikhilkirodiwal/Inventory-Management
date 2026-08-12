@@ -4,9 +4,11 @@ import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   useTheme();
+  const { login } = useAuth();
 
   const navigate = useNavigate();
 
@@ -33,12 +35,12 @@ export default function Login() {
 
       const { data } = await API.post("/auth/login", formData);
 
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
+      login(data.token, data.user);
 
       toast.success("Login successful");
 
-      const redirectPath = data.user?.role === "superadmin" ? "/superadmin" : "/dashboard";
+      const redirectPath =
+        data.user?.role === "superadmin" ? "/superadmin" : "/dashboard";
       navigate(redirectPath, { replace: true });
     } catch (error) {
       toast.error(error?.response?.data?.message || "Login failed");

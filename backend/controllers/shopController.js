@@ -2,6 +2,8 @@ import Shop from "../models/shop.js";
 import User from "../models/user.js";
 import bcrypt from "bcryptjs";
 import DayBook from "../models/dayBook.js";
+import LedgerEntry from "../models/ledgerEntry.js";
+import { computeShopPnl } from "../utils/pnl.js";
 
 /* Flatten a daybook doc's Map field (expenseEntries) so it survives JSON
    serialization. Mongoose Maps stringify to "{}" via a bare res.json() call
@@ -13,6 +15,94 @@ const serializeDaybook = (doc) => {
     obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
   }
   return obj;
+};
+
+const currentMonthKey = () => {
+  const n = new Date();
+  return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+
+const monthRangeFromKey = (monthKey) => {
+  const [year, mon] = monthKey.split("-").map(Number);
+  return {
+    start: new Date(Date.UTC(year, mon - 1, 1)),
+    end: new Date(Date.UTC(year, mon, 1)),
+  };
+};
+
+/* Shared by getShop's initial snapshot and the standalone /pnl endpoint, so
+   the "which month's stats am I looking at" math lives in exactly one place. */
+const computeShopMonthStats = async (shopId, monthKey) => {
+  const { start, end } = monthRangeFromKey(monthKey);
+
+  const [dayAgg, patientBillAgg, salaryAgg] = await Promise.all([
+    DayBook.aggregate([
+      { $match: { shop: shopId, date: { $gte: start, $lt: end } } },
+      {
+        $group: {
+          _id: null,
+          totalSale: { $sum: "$totalSale" },
+          upiReceived: { $sum: "$upiReceived" },
+          personalCr: { $sum: "$personalCr" },
+          cashExpenses: { $sum: "$cashExpenses" },
+          cashToOffice: { $sum: "$cashToOffice" },
+        },
+      },
+    ]),
+    LedgerEntry.aggregate([
+      {
+        $match: {
+          kind: "patientBill",
+          shop: shopId,
+          date: { $gte: start, $lt: end },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    LedgerEntry.aggregate([
+      {
+        $match: {
+          kind: "salary",
+          shop: shopId,
+          date: { $gte: start, $lt: end },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+  ]);
+
+  const d = dayAgg[0] || {
+    totalSale: 0,
+    upiReceived: 0,
+    personalCr: 0,
+    cashExpenses: 0,
+    cashToOffice: 0,
+  };
+  const patientBill = patientBillAgg[0]?.total || 0;
+  const salary = salaryAgg[0]?.total || 0;
+
+  const { revenue, expenses, profitLoss } = computeShopPnl({
+    totalSale: d.totalSale,
+    patientBill,
+    upiReceived: d.upiReceived,
+    personalCr: d.personalCr,
+    salary,
+    cashExpenses: d.cashExpenses,
+  });
+
+  return {
+    month: monthKey,
+    totalSale: d.totalSale,
+    patientBill,
+    salary,
+    cashExpenses: d.cashExpenses,
+    cashToOffice: d.cashToOffice,
+    personalCr: d.personalCr,
+    upiReceived: d.upiReceived,
+    revenue,
+    expenses,
+    profitLoss,
+  };
 };
 
 export const createShop = async (req, res) => {
@@ -53,15 +143,27 @@ export const createShop = async (req, res) => {
   }
 };
 
-/* GET /api/shops — list every shop with a lightweight performance snapshot
-   (admin count, entry count, total sale, latest cash-in-hand, net profit)
-   so the superadmin overview can show real numbers, not just names. */
+/* GET /api/shops — list every shop with a lightweight performance snapshot:
+   lifetime figures (admin count, entry count, total sale, cash-in-hand, net
+   profit) PLUS this-month Total Sale and this-month P&L (Total Sale +
+   Patient Bill + UPI − Personal Cr − Salary − Cash Expenses, site ledger
+   Patient Bill/Salary included) so the overview cards mean something at a
+   glance, not just names. */
 export const getShops = async (req, res) => {
   try {
     const shops = await Shop.find().sort({ createdAt: -1 }).lean();
     const shopIds = shops.map((s) => s._id);
+    const { start: monthStart, end: monthEnd } =
+      monthRangeFromKey(currentMonthKey());
+    const monthDateMatch = { date: { $gte: monthStart, $lt: monthEnd } };
 
-    const [adminCounts, dayStats] = await Promise.all([
+    const [
+      adminCounts,
+      dayStats,
+      monthDayStats,
+      monthPatientBill,
+      monthSalary,
+    ] = await Promise.all([
       User.aggregate([
         {
           $match: { shop: { $in: shopIds }, role: { $in: ["admin", "staff"] } },
@@ -83,18 +185,70 @@ export const getShops = async (req, res) => {
           },
         },
       ]),
+      DayBook.aggregate([
+        { $match: { shop: { $in: shopIds }, ...monthDateMatch } },
+        {
+          $group: {
+            _id: "$shop",
+            totalSale: { $sum: "$totalSale" },
+            upiReceived: { $sum: "$upiReceived" },
+            personalCr: { $sum: "$personalCr" },
+            cashExpenses: { $sum: "$cashExpenses" },
+          },
+        },
+      ]),
+      LedgerEntry.aggregate([
+        {
+          $match: {
+            kind: "patientBill",
+            shop: { $in: shopIds },
+            ...monthDateMatch,
+          },
+        },
+        { $group: { _id: "$shop", total: { $sum: "$amount" } } },
+      ]),
+      LedgerEntry.aggregate([
+        {
+          $match: { kind: "salary", shop: { $in: shopIds }, ...monthDateMatch },
+        },
+        { $group: { _id: "$shop", total: { $sum: "$amount" } } },
+      ]),
     ]);
 
     const adminMap = Object.fromEntries(
       adminCounts.map((a) => [String(a._id), a.count]),
     );
     const statMap = Object.fromEntries(dayStats.map((d) => [String(d._id), d]));
+    const monthMap = Object.fromEntries(
+      monthDayStats.map((d) => [String(d._id), d]),
+    );
+    const monthPBMap = Object.fromEntries(
+      monthPatientBill.map((d) => [String(d._id), d.total]),
+    );
+    const monthSalMap = Object.fromEntries(
+      monthSalary.map((d) => [String(d._id), d.total]),
+    );
 
     const data = shops.map((s) => {
-      const stat = statMap[String(s._id)];
+      const key = String(s._id);
+      const stat = statMap[key];
+      const m = monthMap[key] || {
+        totalSale: 0,
+        upiReceived: 0,
+        personalCr: 0,
+        cashExpenses: 0,
+      };
+      const { profitLoss } = computeShopPnl({
+        totalSale: m.totalSale,
+        patientBill: monthPBMap[key] || 0,
+        upiReceived: m.upiReceived,
+        personalCr: m.personalCr,
+        salary: monthSalMap[key] || 0,
+        cashExpenses: m.cashExpenses,
+      });
       return {
         ...s,
-        adminCount: adminMap[String(s._id)] || 0,
+        adminCount: adminMap[key] || 0,
         entryCount: stat?.entries || 0,
         totalSale: stat?.totalSale || 0,
         lastEntryDate: stat?.lastDate || null,
@@ -102,6 +256,8 @@ export const getShops = async (req, res) => {
         netProfit: stat
           ? (stat.lastCashInHand ?? 0) - (stat.firstOpeningCash ?? 0)
           : 0,
+        currentMonthTotalSale: m.totalSale,
+        currentMonthProfitLoss: profitLoss,
       };
     });
 
@@ -111,8 +267,9 @@ export const getShops = async (req, res) => {
   }
 };
 
-/* GET /api/shops/:id — full detail: shop record, its admins, and every
-   daybook entry ever logged for it, correctly serialized. */
+/* GET /api/shops/:id — full detail: shop record, its admins, every daybook
+   entry ever logged for it, and a computed current-month P&L snapshot
+   (Total Sale, Patient Bill, Salary, Cash Expenses, Cash to Office, P&L). */
 export const getShop = async (req, res) => {
   try {
     const shop = await Shop.findById(req.params.id);
@@ -127,7 +284,36 @@ export const getShop = async (req, res) => {
     });
     const daybooks = daybookDocs.map(serializeDaybook);
 
-    res.json({ success: true, data: { shop, admins, daybooks } });
+    const currentMonthStats = await computeShopMonthStats(
+      shop._id,
+      currentMonthKey(),
+    );
+
+    res.json({
+      success: true,
+      data: { shop, admins, daybooks, currentMonthStats },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* GET /api/shops/:id/pnl?month=YYYY-MM — P&L snapshot for one shop, one
+   month (defaults to the current calendar month if omitted). Powers the
+   "This Month" stat cards on the shop detail view, refetched whenever a
+   different month tab is selected there. */
+export const getShopMonthlyPnl = async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.params.id).select("_id");
+    if (!shop)
+      return res
+        .status(404)
+        .json({ success: false, message: "Shop not found" });
+
+    const month = req.query.month || currentMonthKey();
+    const stats = await computeShopMonthStats(shop._id, month);
+
+    res.json({ success: true, data: stats });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -252,5 +438,52 @@ export const setShopAdmin = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* PUT /api/shops/:id/admin/:adminId — update an existing site admin's name,
+   email, and/or password. Password is only changed if a new one is sent;
+   leaving it blank keeps the current one. */
+export const updateShopAdmin = async (req, res) => {
+  try {
+    const { id: shopId, adminId } = req.params;
+    const { name, email, password } = req.body || {};
+
+    const admin = await User.findOne({ _id: adminId, shop: shopId });
+    if (!admin)
+      return res
+        .status(404)
+        .json({ success: false, message: "Admin not found for this site" });
+
+    if (email && email.toLowerCase() !== admin.email) {
+      const clash = await User.findOne({
+        email: email.toLowerCase(),
+        _id: { $ne: admin._id },
+      });
+      if (clash)
+        return res
+          .status(400)
+          .json({ success: false, message: "That email is already in use" });
+      admin.email = email.toLowerCase();
+    }
+    if (name) admin.name = name;
+    if (password) admin.password = await bcrypt.hash(password, 10);
+
+    await admin.save();
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          _id: admin._id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          shop: admin.shop,
+        },
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
   }
 };

@@ -1,4 +1,5 @@
 import DayBook from "../models/dayBook.js";
+import mongoose from "mongoose";
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 const sumPersonEntries = (arr = []) =>
@@ -17,8 +18,8 @@ const tabTotal = (t) =>
  * Formulas:
  *   ④ totalSale  = kitchenSale + coffeeShop  (each already the sum of its sub-tabs)
  *   ⑧ totalCash  = openingCash + totalSale − officialCr − personalCr − upiReceived
+ *   ⑩ cashExpenses = sum(expenseEntries) + salary + advance
  *   ⑪ cashInHand = totalCash − cashExpenses − cashToOffice  (→ next day's openingCash)
- *   closingCash = cashInHand  (alias kept for any older code/reports still reading it)
  */
 const recompute = (body) => {
   /* ② Kitchen sub-tabs */
@@ -45,9 +46,20 @@ const recompute = (body) => {
     ? sumPersonEntries(officialCrEntries)
     : Number(body.officialCr) || 0;
 
-  const personalCrEntries = Array.isArray(body.personalCrEntries)
+  // Personal Cr entries carry a per-entry `creditedAmount` — how much of
+  // that person's credit has actually been settled so far. Clamped to
+  // [0, amount]; the remaining ("left") amount is just amount - creditedAmount,
+  // derived on read rather than stored.
+  const personalCrEntriesRaw = Array.isArray(body.personalCrEntries)
     ? body.personalCrEntries
     : [];
+  const personalCrEntries = personalCrEntriesRaw.map((e) => {
+    const amount = Number(e.amount) || 0;
+    let creditedAmount = Number(e.creditedAmount) || 0;
+    if (creditedAmount < 0) creditedAmount = 0;
+    if (creditedAmount > amount) creditedAmount = amount;
+    return { name: e.name, amount, creditedAmount };
+  });
   const personalCr = personalCrEntries.length
     ? sumPersonEntries(personalCrEntries)
     : Number(body.personalCr) || 0;
@@ -63,17 +75,34 @@ const recompute = (body) => {
     ? sumPersonEntries(cashToOfficeEntries)
     : Number(body.cashToOffice) || 0;
 
-  /* ⑩ Expenses */
+  /* Salary — own by-person breakdown, no longer a key inside expenseEntries */
+  const salaryEntries = Array.isArray(body.salaryEntries)
+    ? body.salaryEntries
+    : [];
+  const salary = salaryEntries.length
+    ? sumPersonEntries(salaryEntries)
+    : Number(body.salary) || 0;
+
+  /* Advance — same treatment as Salary */
+  const advanceEntries = Array.isArray(body.advanceEntries)
+    ? body.advanceEntries
+    : [];
+  const advance = advanceEntries.length
+    ? sumPersonEntries(advanceEntries)
+    : Number(body.advance) || 0;
+
+  /* ⑩ Expenses (generic category map — Salary/Advance excluded from here now) */
   const rawExp =
     body.expenseEntries && typeof body.expenseEntries === "object"
       ? body.expenseEntries
       : {};
   const expenseEntries = {};
   Object.entries(rawExp).forEach(([k, v]) => {
+    if (/^salary$/i.test(k) || /^advance$/i.test(k)) return; // guard against legacy clients
     const n = Number(v);
     if (n > 0) expenseEntries[k] = n;
   });
-  const cashExpenses = sumMap(expenseEntries) || Number(body.cashExpenses) || 0;
+  const cashExpenses = sumMap(expenseEntries) + salary + advance;
 
   /* ① Opening cash */
   const openingCash = Number(body.openingCash) || 0;
@@ -110,6 +139,12 @@ const recompute = (body) => {
     cashToOffice,
     cashToOfficeEntries,
 
+    salary,
+    salaryEntries,
+
+    advance,
+    advanceEntries,
+
     expenseEntries,
     cashExpenses,
 
@@ -135,7 +170,9 @@ export const getEntries = async (req, res) => {
 
     if (req.user.role === "admin" || req.user.role === "staff") {
       if (!req.user.shop) {
-        return res.status(403).json({ success: false, message: "Shop not assigned" });
+        return res
+          .status(403)
+          .json({ success: false, message: "Shop not assigned" });
       }
       query.shop = req.user.shop;
     } else if (req.user.role === "superadmin") {
@@ -170,6 +207,8 @@ export const getEntries = async (req, res) => {
         totalSale: acc.totalSale + (e.totalSale || 0),
         totalCash: acc.totalCash + (e.totalCash || 0),
         cashToOffice: acc.cashToOffice + (e.cashToOffice || 0),
+        salary: acc.salary + (e.salary || 0),
+        advance: acc.advance + (e.advance || 0),
         cashExpenses: acc.cashExpenses + (e.cashExpenses || 0),
         cashInHand: acc.cashInHand + (e.cashInHand ?? e.closingCash ?? 0),
       }),
@@ -182,6 +221,8 @@ export const getEntries = async (req, res) => {
         totalSale: 0,
         totalCash: 0,
         cashToOffice: 0,
+        salary: 0,
+        advance: 0,
         cashExpenses: 0,
         cashInHand: 0,
       },
@@ -209,7 +250,10 @@ export const getEntry = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Entry not found" });
 
-    if ((req.user.role === "admin" || req.user.role === "staff") && String(doc.shop) !== String(req.user.shop)) {
+    if (
+      (req.user.role === "admin" || req.user.role === "staff") &&
+      String(doc.shop) !== String(req.user.shop)
+    ) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
@@ -232,19 +276,19 @@ export const createEntry = async (req, res) => {
       ),
     );
     if (incoming > todayUTC)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Cannot create an entry for a future date.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Cannot create an entry for a future date.",
+      });
 
     const computed = recompute(req.body);
     const payload = { date: req.body.date, ...computed };
 
     if (req.user.role === "admin" || req.user.role === "staff") {
       if (!req.user.shop) {
-        return res.status(403).json({ success: false, message: "Shop not assigned" });
+        return res
+          .status(403)
+          .json({ success: false, message: "Shop not assigned" });
       }
       payload.shop = req.user.shop;
     } else if (req.user.role === "superadmin") {
@@ -257,12 +301,10 @@ export const createEntry = async (req, res) => {
     res.status(201).json({ success: true, data: serialize(doc) });
   } catch (err) {
     if (err.code === 11000)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Entry for this date already exists.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Entry for this date already exists.",
+      });
     res.status(400).json({ success: false, message: err.message });
   }
 };
@@ -276,7 +318,10 @@ export const updateEntry = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Entry not found" });
 
-    if ((req.user.role === "admin" || req.user.role === "staff") && String(existing.shop) !== String(req.user.shop)) {
+    if (
+      (req.user.role === "admin" || req.user.role === "staff") &&
+      String(existing.shop) !== String(req.user.shop)
+    ) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
@@ -287,11 +332,54 @@ export const updateEntry = async (req, res) => {
       setObj.$set.shop = req.body.shop;
     }
 
-    const doc = await DayBook.findByIdAndUpdate(
-      req.params.id,
-      setObj,
-      { new: true, runValidators: true },
-    );
+    const doc = await DayBook.findByIdAndUpdate(req.params.id, setObj, {
+      new: true,
+      runValidators: true,
+    });
+    res.json({ success: true, data: serialize(doc) });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+/* ─── PATCH /api/daybook/:id/personal-cr/:index ──────────────────────────────
+   Update how much of a single Personal Cr entry has been credited, without
+   touching anything else on the day's record. Body: { creditedAmount }.
+   Clamped to [0, entry.amount] — a confirmation is expected to have already
+   happened on the client before this is called. */
+export const updatePersonalCrCredit = async (req, res) => {
+  try {
+    const doc = await DayBook.findById(req.params.id);
+    if (!doc)
+      return res
+        .status(404)
+        .json({ success: false, message: "Entry not found" });
+
+    if (
+      (req.user.role === "admin" || req.user.role === "staff") &&
+      String(doc.shop) !== String(req.user.shop)
+    ) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const idx = Number(req.params.index);
+    const entry = doc.personalCrEntries[idx];
+    if (!entry)
+      return res
+        .status(404)
+        .json({ success: false, message: "Entry not found" });
+
+    let creditedAmount = Number(req.body?.creditedAmount);
+    if (!Number.isFinite(creditedAmount))
+      return res
+        .status(400)
+        .json({ success: false, message: "creditedAmount must be a number" });
+    if (creditedAmount < 0) creditedAmount = 0;
+    if (creditedAmount > entry.amount) creditedAmount = entry.amount;
+
+    doc.personalCrEntries[idx].creditedAmount = creditedAmount;
+    await doc.save();
+
     res.json({ success: true, data: serialize(doc) });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -307,7 +395,10 @@ export const deleteEntry = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Entry not found" });
 
-    if ((req.user.role === "admin" || req.user.role === "staff") && String(doc.shop) !== String(req.user.shop)) {
+    if (
+      (req.user.role === "admin" || req.user.role === "staff") &&
+      String(doc.shop) !== String(req.user.shop)
+    ) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
@@ -318,29 +409,90 @@ export const deleteEntry = async (req, res) => {
   }
 };
 
-/* ─── GET /api/daybook/summary/monthly ──────────────────────────────────── */
+/* ─── GET /api/daybook/summary/monthly?shop=<id> ─────────────────────────────
+   Monthly roll-up. Previously this had NO shop filter at all, so a shop
+   admin's "monthly summary" silently included every other shop's numbers
+   too. Now it's properly connected to one shop's data:
+     - admin/staff  → forced to their own assigned shop
+     - superadmin   → optional ?shop=<id> filter; if omitted, grouped by
+                       shop as well as month so figures stay attributable
+   Only the fields actually useful for a monthly review are returned —
+   trimmed down from the old kitchen-sink list. */
 export const getMonthlySummary = async (req, res) => {
   try {
+    const match = {};
+
+    if (req.user.role === "admin" || req.user.role === "staff") {
+      if (!req.user.shop) {
+        return res
+          .status(403)
+          .json({ success: false, message: "Shop not assigned" });
+      }
+      match.shop = new mongoose.Types.ObjectId(req.user.shop);
+    } else if (req.user.role === "superadmin") {
+      if (req.query.shop)
+        match.shop = new mongoose.Types.ObjectId(req.query.shop);
+    } else {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const groupId = { year: { $year: "$date" }, month: { $month: "$date" } };
+    if (!match.shop) groupId.shop = "$shop"; // superadmin, all shops: keep them separated
+
     const summary = await DayBook.aggregate([
+      { $match: match },
+      { $sort: { date: 1 } },
       {
         $group: {
-          _id: { year: { $year: "$date" }, month: { $month: "$date" } },
+          _id: groupId,
           totalSale: { $sum: "$totalSale" },
           kitchenSale: { $sum: "$kitchenSale" },
           coffeeShop: { $sum: "$coffeeShop" },
           officialCr: { $sum: "$officialCr" },
           personalCr: { $sum: "$personalCr" },
           upiReceived: { $sum: "$upiReceived" },
-          totalCash: { $sum: "$totalCash" },
           cashToOffice: { $sum: "$cashToOffice" },
+          salary: { $sum: "$salary" },
+          advance: { $sum: "$advance" },
           cashExpenses: { $sum: "$cashExpenses" },
-          cashInHand: { $sum: "$cashInHand" },
-          lastClosing: { $last: "$cashInHand" }, // next month's first opening cash
+          openingCash: { $first: "$openingCash" },
+          cashInHand: { $last: "$cashInHand" }, // next month's opening cash
           days: { $sum: 1 },
         },
       },
-      { $sort: { "_id.year": -1, "_id.month": -1 } },
+      {
+        $lookup: {
+          from: "shops",
+          localField: "_id.shop",
+          foreignField: "_id",
+          as: "shopDoc",
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          shop: "$_id.shop",
+          shopName: { $arrayElemAt: ["$shopDoc.name", 0] },
+          days: 1,
+          totalSale: 1,
+          kitchenSale: 1,
+          coffeeShop: 1,
+          officialCr: 1,
+          personalCr: 1,
+          upiReceived: 1,
+          cashToOffice: 1,
+          salary: 1,
+          advance: 1,
+          cashExpenses: 1,
+          openingCash: 1,
+          cashInHand: 1,
+        },
+      },
+      { $sort: { year: -1, month: -1 } },
     ]);
+
     res.json({ success: true, data: summary });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
