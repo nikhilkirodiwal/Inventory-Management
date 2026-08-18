@@ -24,6 +24,25 @@ const buildTypeMap = (stats) => {
   });
   return map;
 };
+const buildStats = (list) => {
+  const transferred = list
+    .filter((t) => t.type === "transfer")
+    .reduce((s, t) => s + t.amount, 0);
+  const received = list
+    .filter((t) => t.type === "receive")
+    .reduce((s, t) => s + t.amount, 0);
+  const lastTransactionDate = list.reduce(
+    (max, t) => (!max || t.date > max ? t.date : max),
+    null,
+  );
+  return {
+    transferred,
+    received,
+    netBalance: received - transferred,
+    transactionCount: list.length,
+    lastTransactionDate,
+  };
+};
 
 /* GET /api/partners?month=YYYY-MM — every partner with all-time AND
    current-month (or requested month) stat snapshots */
@@ -80,7 +99,6 @@ export const getPartners = async (req, res) => {
         ...p,
         allTime: { ...at, netBalance: at.received - at.transferred },
         monthly: { ...mo, netBalance: mo.received - mo.transferred, month },
-        // legacy flat fields — kept in case older frontend code still reads these directly
         totalTransferred: at.transferred,
         totalReceived: at.received,
         netBalance: at.received - at.transferred,
@@ -153,8 +171,8 @@ export const deletePartner = async (req, res) => {
   }
 };
 
-/* GET /api/partners/:id — partner record + every transaction, oldest first
-   (kept for backward compat / exports; the UI now drills down via /shops) */
+/* GET /api/partners/:id — partner record + every transaction, newest first
+   (kept for backward compat / exports) */
 export const getPartnerDetail = async (req, res) => {
   try {
     const partner = await Partner.findById(req.params.id);
@@ -163,9 +181,9 @@ export const getPartnerDetail = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Partner not found" });
 
-    const transactions = await PartnerTransaction.find({
-      partner: partner._id,
-    }).sort({ date: 1 });
+    const transactions = await PartnerTransaction.find({ partner: partner._id })
+      .populate("shop", "name")
+      .sort({ date: -1 });
 
     res.json({ success: true, data: { partner, transactions } });
   } catch (err) {
@@ -173,10 +191,61 @@ export const getPartnerDetail = async (req, res) => {
   }
 };
 
-/* GET /api/partners/:id/shops?month=YYYY-MM — level 2:
-   this partner's transactions for the month, grouped by site.
-   A "shop" with shopId "unassigned" is included whenever legacy
-   (pre-shop-tagging) transactions fall in that month. */
+/* GET /api/partners/:id/overview — EVERY shop/site in the system (even ones
+   with zero activity for this partner) plus that partner's full, all-time
+   transaction history grouped under each site. This powers the "all shops,
+   then all transactions per site" partner page. */
+export const getPartnerOverview = async (req, res) => {
+  try {
+    const partner = await Partner.findById(req.params.id);
+    if (!partner)
+      return res
+        .status(404)
+        .json({ success: false, message: "Partner not found" });
+
+    const [allShops, transactions] = await Promise.all([
+      Shop.find().sort({ name: 1 }).select("name").lean(),
+      PartnerTransaction.find({ partner: partner._id }).sort({ date: -1 }),
+    ]);
+
+    const byShop = {};
+    transactions.forEach((t) => {
+      const key = t.shop ? String(t.shop) : "unassigned";
+      byShop[key] = byShop[key] || [];
+      byShop[key].push(t);
+    });
+
+    const shops = allShops.map((sh) => {
+      const key = String(sh._id);
+      const list = byShop[key] || [];
+      return {
+        shopId: key,
+        shopName: sh.name,
+        transactions: list,
+        ...buildStats(list),
+      };
+    });
+
+    // Unassigned always shows up as a card too, so there's somewhere to log
+    // a transaction that isn't tied to any specific site.
+    const unassignedList = byShop.unassigned || [];
+    shops.push({
+      shopId: "unassigned",
+      shopName: "Unassigned",
+      transactions: unassignedList,
+      ...buildStats(unassignedList),
+    });
+
+    const allTimeTotals = buildStats(transactions);
+
+    res.json({ success: true, data: { partner, shops, allTimeTotals } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* GET /api/partners/:id/shops?month=YYYY-MM — every shop/site, scoped to one
+   month, for the level-2 "site-wise this month" summary view */
 export const getPartnerShops = async (req, res) => {
   try {
     const partner = await Partner.findById(req.params.id);
@@ -199,46 +268,55 @@ export const getPartnerShops = async (req, res) => {
       },
     ]);
 
-    const shopMap = {};
+    const statMap = {};
     grouped.forEach((g) => {
       const key = g._id.shop ? String(g._id.shop) : "unassigned";
-      shopMap[key] = shopMap[key] || {
+      statMap[key] = statMap[key] || {
         transferred: 0,
         received: 0,
         count: 0,
         lastDate: null,
       };
-      if (g._id.type === "transfer") shopMap[key].transferred = g.total;
-      else shopMap[key].received = g.total;
-      shopMap[key].count += g.count;
-      if (!shopMap[key].lastDate || g.lastDate > shopMap[key].lastDate)
-        shopMap[key].lastDate = g.lastDate;
+      if (g._id.type === "transfer") statMap[key].transferred = g.total;
+      else statMap[key].received = g.total;
+      statMap[key].count += g.count;
+      if (!statMap[key].lastDate || g.lastDate > statMap[key].lastDate)
+        statMap[key].lastDate = g.lastDate;
     });
 
-    const shopIds = Object.keys(shopMap).filter((k) => k !== "unassigned");
-    const shopDocs = await Shop.find({ _id: { $in: shopIds } })
-      .select("name")
-      .lean();
-    const nameMap = Object.fromEntries(
-      shopDocs.map((s) => [String(s._id), s.name]),
-    );
-
-    const shops = Object.entries(shopMap)
-      .map(([key, v]) => ({
+    // Every shop gets a card, even with zero activity this month
+    const allShops = await Shop.find().sort({ name: 1 }).select("name").lean();
+    const shops = allShops.map((sh) => {
+      const key = String(sh._id);
+      const v = statMap[key] || {
+        transferred: 0,
+        received: 0,
+        count: 0,
+        lastDate: null,
+      };
+      return {
         shopId: key,
-        shopName:
-          key === "unassigned" ? "Unassigned" : nameMap[key] || "Unknown Site",
+        shopName: sh.name,
         transferred: v.transferred,
         received: v.received,
         netBalance: v.received - v.transferred,
         transactionCount: v.count,
         lastTransactionDate: v.lastDate,
-      }))
-      .sort((a, b) => {
-        if (a.shopId === "unassigned") return 1;
-        if (b.shopId === "unassigned") return -1;
-        return a.shopName.localeCompare(b.shopName);
+      };
+    });
+
+    if (statMap.unassigned) {
+      const v = statMap.unassigned;
+      shops.push({
+        shopId: "unassigned",
+        shopName: "Unassigned",
+        transferred: v.transferred,
+        received: v.received,
+        netBalance: v.received - v.transferred,
+        transactionCount: v.count,
+        lastTransactionDate: v.lastDate,
       });
+    }
 
     const monthTotals = shops.reduce(
       (a, s) => ({
@@ -267,8 +345,8 @@ export const getPartnerShops = async (req, res) => {
 
 /* GET /api/partners/:id/shops/:shopId — level 3:
    every transaction between this partner and this one site, day-wise,
-   oldest first (frontend filters by month client-side, same pattern as
-   before). :shopId may be the literal string "unassigned". */
+   oldest first (frontend filters by month client-side). :shopId may be
+   the literal string "unassigned". */
 export const getPartnerShopTransactions = async (req, res) => {
   try {
     const { id, shopId } = req.params;

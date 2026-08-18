@@ -6,6 +6,7 @@ import {
   updatePartner,
   deletePartner,
   getPartnerDetail,
+  getPartnerOverview,
   getPartnerShops,
   getPartnerShopTransactions,
   createTransaction,
@@ -18,6 +19,9 @@ const router = express.Router();
 router.use(protect, isSuperAdmin);
 
 router.route("/").get(getPartners).post(createPartner);
+
+// all shops + full all-time transaction history grouped per site
+router.get("/:id/overview", getPartnerOverview);
 
 // level 2: shop/site summary for a partner (?month=YYYY-MM, defaults to current month)
 router.get("/:id/shops", getPartnerShops);
