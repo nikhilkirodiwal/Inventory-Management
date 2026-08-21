@@ -4,6 +4,7 @@ const personEntrySchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     amount: { type: Number, default: 0 },
+    note: { type: String, default: "" }, // optional free-text note per entry
   },
   { _id: false },
 );
@@ -18,6 +19,7 @@ const personalCrEntrySchema = new mongoose.Schema(
     name: { type: String, required: true },
     amount: { type: Number, default: 0 },
     creditedAmount: { type: Number, default: 0 }, // how much of `amount` has been credited so far
+    note: { type: String, default: "" },
   },
   { _id: false },
 );
@@ -55,7 +57,7 @@ const dayBookSchema = new mongoose.Schema(
 
     // ⑤ ⑥ Credits
     officialCr: { type: Number, default: 0 },
-    officialCrEntries: [personEntrySchema],
+    officialCrEntries: [personEntrySchema], // "bill name" + amount (+ optional note)
     personalCr: { type: Number, default: 0 },
     personalCrEntries: [personalCrEntrySchema], // by-person, each markable as credited or not
 
@@ -85,6 +87,13 @@ const dayBookSchema = new mongoose.Schema(
     // rolled into Cash Expenses.
     advance: { type: Number, default: 0 },
     advanceEntries: [personEntrySchema],
+
+    // Purchase Credit — items bought ON CREDIT (not yet paid for), e.g. from
+    // a vendor. This is a LIABILITY tracker only: unlike Salary/Advance it
+    // does NOT touch Cash Expenses or Cash In Hand, since no cash actually
+    // left hand today. Purely for keeping a record of what's owed.
+    purchaseCredit: { type: Number, default: 0 },
+    purchaseCreditEntries: [personEntrySchema], // name = "what was purchased"
 
     // ⑩ Cash Expenses — the generic category map (Salary/Advance no longer
     // live as keys in here; they're tracked above and added on top).

@@ -20,6 +20,8 @@ const tabTotal = (t) =>
  *   ⑧ totalCash  = openingCash + totalSale − officialCr − personalCr − upiReceived
  *   ⑩ cashExpenses = sum(expenseEntries) + salary + advance
  *   ⑪ cashInHand = totalCash − cashExpenses − cashToOffice  (→ next day's openingCash)
+ *   Purchase Credit is tracked separately and does NOT affect any of the
+ *   above — it's a liability record (goods bought on credit), not cash.
  */
 const recompute = (body) => {
   /* ② Kitchen sub-tabs */
@@ -38,7 +40,7 @@ const recompute = (body) => {
     ? coffeeSubTabs.reduce((s, t) => s + tabTotal(t), 0)
     : Number(body.coffeeShop ?? body.coffeeShopSale) || 0;
 
-  /* ⑤ ⑥ Credits */
+  /* ⑤ ⑥ Credits — officialCrEntries pass through as-is (name/amount/note) */
   const officialCrEntries = Array.isArray(body.officialCrEntries)
     ? body.officialCrEntries
     : [];
@@ -47,9 +49,9 @@ const recompute = (body) => {
     : Number(body.officialCr) || 0;
 
   // Personal Cr entries carry a per-entry `creditedAmount` — how much of
-  // that person's credit has actually been settled so far. Clamped to
-  // [0, amount]; the remaining ("left") amount is just amount - creditedAmount,
-  // derived on read rather than stored.
+  // that person's credit has actually been settled so far — and an
+  // optional `note`. creditedAmount clamped to [0, amount]; the remaining
+  // ("left") amount is just amount - creditedAmount, derived on read.
   const personalCrEntriesRaw = Array.isArray(body.personalCrEntries)
     ? body.personalCrEntries
     : [];
@@ -58,7 +60,7 @@ const recompute = (body) => {
     let creditedAmount = Number(e.creditedAmount) || 0;
     if (creditedAmount < 0) creditedAmount = 0;
     if (creditedAmount > amount) creditedAmount = amount;
-    return { name: e.name, amount, creditedAmount };
+    return { name: e.name, amount, creditedAmount, note: e.note || "" };
   });
   const personalCr = personalCrEntries.length
     ? sumPersonEntries(personalCrEntries)
@@ -90,6 +92,14 @@ const recompute = (body) => {
   const advance = advanceEntries.length
     ? sumPersonEntries(advanceEntries)
     : Number(body.advance) || 0;
+
+  /* Purchase Credit — liability tracker only, does not touch cash formulas */
+  const purchaseCreditEntries = Array.isArray(body.purchaseCreditEntries)
+    ? body.purchaseCreditEntries
+    : [];
+  const purchaseCredit = purchaseCreditEntries.length
+    ? sumPersonEntries(purchaseCreditEntries)
+    : Number(body.purchaseCredit) || 0;
 
   /* ⑩ Expenses (generic category map — Salary/Advance excluded from here now) */
   const rawExp =
@@ -144,6 +154,9 @@ const recompute = (body) => {
 
     advance,
     advanceEntries,
+
+    purchaseCredit,
+    purchaseCreditEntries,
 
     expenseEntries,
     cashExpenses,
@@ -209,6 +222,7 @@ export const getEntries = async (req, res) => {
         cashToOffice: acc.cashToOffice + (e.cashToOffice || 0),
         salary: acc.salary + (e.salary || 0),
         advance: acc.advance + (e.advance || 0),
+        purchaseCredit: acc.purchaseCredit + (e.purchaseCredit || 0),
         cashExpenses: acc.cashExpenses + (e.cashExpenses || 0),
         cashInHand: acc.cashInHand + (e.cashInHand ?? e.closingCash ?? 0),
       }),
@@ -223,6 +237,7 @@ export const getEntries = async (req, res) => {
         cashToOffice: 0,
         salary: 0,
         advance: 0,
+        purchaseCredit: 0,
         cashExpenses: 0,
         cashInHand: 0,
       },
@@ -343,10 +358,11 @@ export const updateEntry = async (req, res) => {
 };
 
 /* ─── PATCH /api/daybook/:id/personal-cr/:index ──────────────────────────────
-   Update how much of a single Personal Cr entry has been credited, without
-   touching anything else on the day's record. Body: { creditedAmount }.
-   Clamped to [0, entry.amount] — a confirmation is expected to have already
-   happened on the client before this is called. */
+   Update how much of a single Personal Cr entry has been credited (and,
+   optionally, its note) without touching anything else on the day's record.
+   Body: { creditedAmount, note? }. creditedAmount clamped to [0, amount] —
+   a confirmation is expected to have already happened on the client before
+   this is called. */
 export const updatePersonalCrCredit = async (req, res) => {
   try {
     const doc = await DayBook.findById(req.params.id);
@@ -378,6 +394,9 @@ export const updatePersonalCrCredit = async (req, res) => {
     if (creditedAmount > entry.amount) creditedAmount = entry.amount;
 
     doc.personalCrEntries[idx].creditedAmount = creditedAmount;
+    if (req.body?.note !== undefined) {
+      doc.personalCrEntries[idx].note = String(req.body.note || "");
+    }
     await doc.save();
 
     res.json({ success: true, data: serialize(doc) });
@@ -410,14 +429,9 @@ export const deleteEntry = async (req, res) => {
 };
 
 /* ─── GET /api/daybook/summary/monthly?shop=<id> ─────────────────────────────
-   Monthly roll-up. Previously this had NO shop filter at all, so a shop
-   admin's "monthly summary" silently included every other shop's numbers
-   too. Now it's properly connected to one shop's data:
-     - admin/staff  → forced to their own assigned shop
-     - superadmin   → optional ?shop=<id> filter; if omitted, grouped by
-                       shop as well as month so figures stay attributable
-   Only the fields actually useful for a monthly review are returned —
-   trimmed down from the old kitchen-sink list. */
+   Monthly roll-up, scoped to one shop (admin/staff forced to their own;
+   superadmin may pass ?shop=<id>, or omit it to get every shop grouped
+   separately). */
 export const getMonthlySummary = async (req, res) => {
   try {
     const match = {};
@@ -454,6 +468,7 @@ export const getMonthlySummary = async (req, res) => {
           cashToOffice: { $sum: "$cashToOffice" },
           salary: { $sum: "$salary" },
           advance: { $sum: "$advance" },
+          purchaseCredit: { $sum: "$purchaseCredit" },
           cashExpenses: { $sum: "$cashExpenses" },
           openingCash: { $first: "$openingCash" },
           cashInHand: { $last: "$cashInHand" }, // next month's opening cash
@@ -485,6 +500,7 @@ export const getMonthlySummary = async (req, res) => {
           cashToOffice: 1,
           salary: 1,
           advance: 1,
+          purchaseCredit: 1,
           cashExpenses: 1,
           openingCash: 1,
           cashInHand: 1,

@@ -218,6 +218,8 @@ function MonthRow({ mk, data, loading, onClick }) {
 }
 
 /* ─── PersonEntryPopup ────────────────────────────────────────────────────── */
+/* Every row now also carries an optional free-text `note`, alongside
+   name/amount (and creditedAmount for Personal Cr.). */
 function PersonEntryPopup({
   title,
   entries,
@@ -225,26 +227,22 @@ function PersonEntryPopup({
   onSave,
   showCredited = false,
 }) {
+  const blankRow = () =>
+    showCredited
+      ? { name: "", amount: "", creditedAmount: 0, note: "" }
+      : { name: "", amount: "", note: "" };
   const [rows, setRows] = useState(
     entries.length > 0
-      ? entries.map((r) =>
-          showCredited
-            ? { ...r, creditedAmount: Number(r.creditedAmount) || 0 }
-            : r,
-        )
-      : [
-          showCredited
-            ? { name: "", amount: "", creditedAmount: 0 }
-            : { name: "", amount: "" },
-        ],
+      ? entries.map((r) => ({
+          ...r,
+          note: r.note || "",
+          ...(showCredited
+            ? { creditedAmount: Number(r.creditedAmount) || 0 }
+            : {}),
+        }))
+      : [blankRow()],
   );
-  const addRow = () =>
-    setRows((p) => [
-      ...p,
-      showCredited
-        ? { name: "", amount: "", creditedAmount: 0 }
-        : { name: "", amount: "" },
-    ]);
+  const addRow = () => setRows((p) => [...p, blankRow()]);
   const upd = (i, k, v) =>
     setRows((p) => p.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
   const del = (i) => setRows((p) => p.filter((_, j) => j !== i));
@@ -331,6 +329,17 @@ function PersonEntryPopup({
                     </button>
                   )}
                 </div>
+                <input
+                  placeholder="Note (optional)"
+                  value={r.note}
+                  onChange={(e) => upd(i, "note", e.target.value)}
+                  className="w-full mt-2 px-3 py-1.5 rounded-lg border text-xs outline-none"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: "var(--border)",
+                    color: "var(--text-primary)",
+                  }}
+                />
                 {showCredited && (
                   <div className="flex items-center gap-2 mt-2 pl-0.5">
                     <label
@@ -846,7 +855,7 @@ function LiveClock() {
   );
 }
 
-/* ─── Quick-stat tile — Personal Cr / Patient Bill / Stock ───────────────────── */
+/* ─── Quick-stat tile — Personal Cr / Patient Bill / Salary / Purchase Credit / Stock ─── */
 function QuickStatCard({ label, hint, onClick, comingSoon }) {
   return (
     <button
@@ -1167,6 +1176,11 @@ function DetailModal({ entry, onClose }) {
                 entries: entry.advanceEntries || [],
                 total: entry.advance,
               },
+              {
+                label: "Purchase Credit",
+                entries: entry.purchaseCreditEntries || [],
+                total: entry.purchaseCredit,
+              },
             ].map((s) => (
               <div
                 key={s.label}
@@ -1201,8 +1215,16 @@ function DetailModal({ entry, onClose }) {
                           className="flex justify-between items-center text-xs rounded-lg px-2 py-1.5"
                           style={{ background: "var(--bg-surface)" }}
                         >
-                          <span className="flex items-center gap-1.5">
-                            {e.name}
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate">{e.name}</span>
+                            {e.note && (
+                              <span
+                                className="truncate italic"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                — {e.note}
+                              </span>
+                            )}
                             {s.showCredited && (
                               <Badge
                                 variant={
@@ -1221,7 +1243,9 @@ function DetailModal({ entry, onClose }) {
                               </Badge>
                             )}
                           </span>
-                          <span className="font-medium">₹{fmt(e.amount)}</span>
+                          <span className="font-medium shrink-0">
+                            ₹{fmt(e.amount)}
+                          </span>
                         </div>
                       );
                     })}
@@ -1324,6 +1348,10 @@ function DetailModal({ entry, onClose }) {
               </div>
             ))}
           </div>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Purchase Credit is tracked separately as a liability (goods bought
+            on credit) and is not included in any of the cash formulas above.
+          </p>
         </div>
       </div>
     </div>
@@ -1366,6 +1394,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         cashToOfficeEntries: e.cashToOfficeEntries || [],
         salaryEntries: e.salaryEntries || [],
         advanceEntries: e.advanceEntries || [],
+        purchaseCreditEntries: e.purchaseCreditEntries || [],
         expenseEntries: normalizeExpenses(e.expenseEntries),
       };
     return {
@@ -1380,6 +1409,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       cashToOfficeEntries: [],
       salaryEntries: [],
       advanceEntries: [],
+      purchaseCreditEntries: [],
       expenseEntries: {},
     };
   };
@@ -1392,6 +1422,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const [cashOfficePopup, setCashOfficePopup] = useState(false);
   const [salaryPopup, setSalaryPopup] = useState(false);
   const [advancePopup, setAdvancePopup] = useState(false);
+  const [purchaseCreditPopup, setPurchaseCreditPopup] = useState(false);
   const [expensePopup, setExpensePopup] = useState(false);
   const [dateError, setDateError] = useState("");
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -1411,6 +1442,8 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const openingCash = Number(form.openingCash) || 0;
   const salary = sumPersonEntries(form.salaryEntries);
   const advance = sumPersonEntries(form.advanceEntries);
+  // Purchase Credit — liability tracker only, NOT part of Cash Expenses.
+  const purchaseCredit = sumPersonEntries(form.purchaseCreditEntries);
   // Cash Expenses = generic category map + Salary + Advance (Salary/Advance
   // moved out of the generic map into their own by-person breakdowns, but
   // still count toward the same Cash Expenses total, right alongside it).
@@ -1461,6 +1494,8 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       salaryEntries: form.salaryEntries,
       advance,
       advanceEntries: form.advanceEntries,
+      purchaseCredit,
+      purchaseCreditEntries: form.purchaseCreditEntries,
       totalSale,
       totalCash,
       expenseEntries: expObj,
@@ -1738,6 +1773,35 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
             />
           </div>
 
+          {/* Purchase Credit — separate from Cash Expenses (liability, not cash) */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p
+                className="text-xs font-bold uppercase tracking-widest"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Purchase Credit
+              </p>
+              <span
+                className="text-[10px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Not counted in Cash Expenses — goods bought on credit
+              </span>
+            </div>
+            <BtnField
+              label="Purchase Credit"
+              total={purchaseCredit}
+              count={
+                form.purchaseCreditEntries.length > 0
+                  ? form.purchaseCreditEntries.length
+                  : null
+              }
+              onClick={() => setPurchaseCreditPopup(true)}
+              hint="Enter what was purchased on credit…"
+            />
+          </div>
+
           {/* ⑩ Cash Expenses — Salary, Advance, and general categories.
               Salary & Advance are their own by-person breakdowns now (not
               generic category keys) but still add up into the same Cash
@@ -1995,6 +2059,17 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
           onSave={(rows) => {
             set("advanceEntries", rows);
             setAdvancePopup(false);
+          }}
+        />
+      )}
+      {purchaseCreditPopup && (
+        <PersonEntryPopup
+          title="Purchase Credit"
+          entries={form.purchaseCreditEntries}
+          onClose={() => setPurchaseCreditPopup(false)}
+          onSave={(rows) => {
+            set("purchaseCreditEntries", rows);
+            setPurchaseCreditPopup(false);
           }}
         />
       )}
@@ -2347,22 +2422,27 @@ export default function Dashboard() {
           <LiveClock />
         </div>
 
-        {/* ── Quick stats: Personal Cr / Patient Bill / Salary / Stock ─────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* ── Quick stats: Personal Cr / Patient Bill / Salary / Purchase Credit / Stock ─── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <QuickStatCard
             label="Personal Cr."
-            hint="By-person credit, credited status — monthly & day-wise"
+            hint="Grouped by person — pending, updates, notes"
             onClick={() => navigate("/dashboard/personal-cr")}
           />
           <QuickStatCard
             label="Patient Bill"
-            hint="Official Cr. — monthly & day-wise"
+            hint="Official Cr. — day-wise, name & amount"
             onClick={() => navigate("/dashboard/patient-bill")}
           />
           <QuickStatCard
             label="Salary"
-            hint="By-person salary — monthly & day-wise"
+            hint="Salary & Advance — date/name/amount/note"
             onClick={() => navigate("/dashboard/salary")}
+          />
+          <QuickStatCard
+            label="Purchase Credit"
+            hint="What's bought on credit — monthly & day-wise"
+            onClick={() => navigate("/dashboard/purchase-credit")}
           />
           <QuickStatCard label="Stock" comingSoon />
         </div>

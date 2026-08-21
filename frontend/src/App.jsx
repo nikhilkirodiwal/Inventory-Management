@@ -44,8 +44,10 @@ export default function App() {
         }
       />
 
-      {/* Personal Cr. / Patient Bill / Salary — full pages (were popups), each
-          with their own back button to /dashboard */}
+      {/* Personal Cr. / Patient Bill / Salary / Purchase Credit — each a full
+          page with its own back button to /dashboard. Mode determines the
+          layout: personGrouped (Personal Cr.), dayCards (Patient Bill,
+          Purchase Credit), or flatTable (Salary + Advance together). */}
 
       <Route
         path="/dashboard/personal-cr"
@@ -53,9 +55,15 @@ export default function App() {
           <ProtectedRoute>
             <CrDetailPage
               title="Personal Cr."
-              fieldKey="personalCr"
-              entriesKey="personalCrEntries"
-              showCredited
+              mode="personGrouped"
+              fields={[
+                {
+                  key: "personalCr",
+                  entriesKey: "personalCrEntries",
+                  label: "Personal Cr.",
+                  showCredited: true,
+                },
+              ]}
             />
           </ProtectedRoute>
         }
@@ -67,8 +75,14 @@ export default function App() {
           <ProtectedRoute>
             <CrDetailPage
               title="Patient Bill (Official Cr.)"
-              fieldKey="officialCr"
-              entriesKey="officialCrEntries"
+              mode="dayCards"
+              fields={[
+                {
+                  key: "officialCr",
+                  entriesKey: "officialCrEntries",
+                  label: "Patient Bill",
+                },
+              ]}
             />
           </ProtectedRoute>
         }
@@ -80,8 +94,34 @@ export default function App() {
           <ProtectedRoute>
             <CrDetailPage
               title="Salary"
-              fieldKey="salary"
-              entriesKey="salaryEntries"
+              mode="flatTable"
+              fields={[
+                { key: "salary", entriesKey: "salaryEntries", label: "Salary" },
+                {
+                  key: "advance",
+                  entriesKey: "advanceEntries",
+                  label: "Advance",
+                },
+              ]}
+            />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/dashboard/purchase-credit"
+        element={
+          <ProtectedRoute>
+            <CrDetailPage
+              title="Purchase Credit"
+              mode="dayCards"
+              fields={[
+                {
+                  key: "purchaseCredit",
+                  entriesKey: "purchaseCreditEntries",
+                  label: "Purchase Credit",
+                },
+              ]}
             />
           </ProtectedRoute>
         }
@@ -105,7 +145,7 @@ export default function App() {
         }
       />
 
-      {/* Partner drill-down: partner -> sites (this month) -> day-wise per site */}
+      {/* Partner drill-down: partner -> sites -> transactions per site */}
 
       <Route
         path="/superadmin/partners/:id"
