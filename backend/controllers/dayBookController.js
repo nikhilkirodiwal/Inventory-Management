@@ -1,4 +1,5 @@
 import DayBook from "../models/dayBook.js";
+import Shop from "../models/shop.js";
 import mongoose from "mongoose";
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
@@ -510,6 +511,76 @@ export const getMonthlySummary = async (req, res) => {
     ]);
 
     res.json({ success: true, data: summary });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* ─── GET /api/daybook/shop-totals/:field ─────────────────────────────────────
+   Superadmin-only. Every shop with lifetime + this-month totals for one
+   DayBook field (currently "salary" or "officialCr" — i.e. Patient Bill).
+   Powers the read-only Salary / Patient Bill "pick a site" screens: these
+   are no longer separate manually-entered ledgers, they're just a view
+   into each shop's own daybook data. */
+const SHOP_TOTAL_FIELDS = ["salary", "officialCr"];
+
+export const getShopFieldTotals = async (req, res) => {
+  try {
+    const { field } = req.params;
+    if (!SHOP_TOTAL_FIELDS.includes(field)) {
+      return res.status(400).json({ success: false, message: "Invalid field" });
+    }
+
+    const now = new Date();
+    const monthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const monthEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+
+    const [allTime, thisMonth, shops] = await Promise.all([
+      DayBook.aggregate([
+        { $match: { [field]: { $gt: 0 } } },
+        {
+          $group: {
+            _id: "$shop",
+            total: { $sum: `$${field}` },
+            days: { $sum: 1 },
+            lastDate: { $max: "$date" },
+          },
+        },
+      ]),
+      DayBook.aggregate([
+        {
+          $match: {
+            [field]: { $gt: 0 },
+            date: { $gte: monthStart, $lt: monthEnd },
+          },
+        },
+        { $group: { _id: "$shop", total: { $sum: `$${field}` } } },
+      ]),
+      Shop.find().sort({ name: 1 }).lean(),
+    ]);
+
+    const allTimeMap = Object.fromEntries(
+      allTime.map((a) => [String(a._id), a]),
+    );
+    const monthMap = Object.fromEntries(
+      thisMonth.map((a) => [String(a._id), a.total]),
+    );
+
+    const data = shops.map((s) => ({
+      _id: s._id,
+      name: s.name,
+      address: s.address,
+      allTimeTotal: allTimeMap[String(s._id)]?.total || 0,
+      days: allTimeMap[String(s._id)]?.days || 0,
+      lastEntryDate: allTimeMap[String(s._id)]?.lastDate || null,
+      thisMonthTotal: monthMap[String(s._id)] || 0,
+    }));
+
+    res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -6,6 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import Partners from "./Partners";
 import LedgerTab from "./LedgerTab";
+import ShopFieldLedgerView from "./ShopFieldLedgerView";
 import ProfitLossView from "./ProfitLossView";
 
 const fmt = (n) =>
@@ -806,10 +807,12 @@ export default function SuperAdminDashboard() {
         {activeTab === "shops" && <ShopsTab navigate={navigate} />}
         {activeTab === "partners" && <Partners />}
         {activeTab === "salary" && (
-          <LedgerTab
-            kind="salary"
+          <ShopFieldLedgerView
+            field="salary"
+            entriesKey="salaryEntries"
             title="Salary"
-            accentLabel="Staff salary payouts"
+            subtitle="Staff salary payouts"
+            mode="flatTable"
           />
         )}
         {activeTab === "adminExpense" && (
@@ -820,10 +823,12 @@ export default function SuperAdminDashboard() {
           />
         )}
         {activeTab === "patientBill" && (
-          <LedgerTab
-            kind="patientBill"
+          <ShopFieldLedgerView
+            field="officialCr"
+            entriesKey="officialCrEntries"
             title="Patient Bill"
-            accentLabel="Patient billing income"
+            subtitle="Patient billing income (Official Cr.)"
+            mode="dayCards"
           />
         )}
         {activeTab === "pnl" && <ProfitLossView />}
