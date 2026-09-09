@@ -402,6 +402,10 @@ export default function Partners() {
                   All-time net ₹{fmt(p.netBalance)} · {p.transactionCount} txns
                   · last {fmtDate(p.lastTransactionDate)}
                 </p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Cash to Office: ₹{fmt(p.cashToOfficeMonthly || 0)} this month
+                  · ₹{fmt(p.cashToOfficeAllTime || 0)} all time
+                </p>
 
                 <div
                   className="flex gap-2 pt-2 border-t"

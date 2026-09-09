@@ -12,11 +12,16 @@ import {
   createTransaction,
   updateTransaction,
   deleteTransaction,
+  getPartnerOptions,
 } from "../controllers/partnerController.js";
 
 const router = express.Router();
 
-router.use(protect, isSuperAdmin);
+router.use(protect);
+
+router.get("/options", getPartnerOptions);
+
+router.use(isSuperAdmin);
 
 router.route("/").get(getPartners).post(createPartner);
 

@@ -41,6 +41,14 @@ const recompute = (body) => {
     ? coffeeSubTabs.reduce((s, t) => s + tabTotal(t), 0)
     : Number(body.coffeeShop ?? body.coffeeShopSale) || 0;
 
+  /* Counter Sale sub-tabs */
+  const counterSubTabs = Array.isArray(body.counterSubTabs)
+    ? body.counterSubTabs
+    : [];
+  const counterSale = counterSubTabs.length
+    ? counterSubTabs.reduce((s, t) => s + tabTotal(t), 0)
+    : Number(body.counterSale) || 0;
+
   /* ⑤ ⑥ Credits — officialCrEntries pass through as-is (name/amount/note) */
   const officialCrEntries = Array.isArray(body.officialCrEntries)
     ? body.officialCrEntries
@@ -67,8 +75,13 @@ const recompute = (body) => {
     ? sumPersonEntries(personalCrEntries)
     : Number(body.personalCr) || 0;
 
-  /* ⑦ UPI */
-  const upiReceived = Number(body.upiReceived) || 0;
+  /* ⑦ UPI — support multiple named receipts while retaining the total field */
+  const upiReceivedEntries = Array.isArray(body.upiReceivedEntries)
+    ? body.upiReceivedEntries
+    : [];
+  const upiReceived = upiReceivedEntries.length
+    ? sumPersonEntries(upiReceivedEntries)
+    : Number(body.upiReceived) || 0;
 
   /* ⑨ Cash to office */
   const cashToOfficeEntries = Array.isArray(body.cashToOfficeEntries)
@@ -119,7 +132,7 @@ const recompute = (body) => {
   const openingCash = Number(body.openingCash) || 0;
 
   /* ── Core formulas ── */
-  const totalSale = kitchenSale + coffeeShop;
+  const totalSale = kitchenSale + coffeeShop + counterSale;
   const totalCash =
     openingCash + totalSale - officialCr - personalCr - upiReceived;
   const cashInHand = totalCash - cashExpenses - cashToOffice;
@@ -136,6 +149,10 @@ const recompute = (body) => {
     coffeeShopSale: coffeeShop, // legacy alias
     coffeeShopEntries: coffeeSubTabs.flatMap((t) => t.entries || []), // legacy flat copy
 
+    counterSubTabs,
+    counterSale,
+    counterSaleEntries: counterSubTabs.flatMap((t) => t.entries || []),
+
     officialCr,
     officialCrEntries,
 
@@ -143,6 +160,7 @@ const recompute = (body) => {
     personalCrEntries,
 
     upiReceived,
+    upiReceivedEntries,
 
     totalSale,
     totalCash,
@@ -215,6 +233,7 @@ export const getEntries = async (req, res) => {
       (acc, e) => ({
         kitchenSale: acc.kitchenSale + (e.kitchenSale || 0),
         coffeeShop: acc.coffeeShop + (e.coffeeShop ?? e.coffeeShopSale ?? 0),
+        counterSale: acc.counterSale + (e.counterSale || 0),
         officialCr: acc.officialCr + (e.officialCr || 0),
         personalCr: acc.personalCr + (e.personalCr || 0),
         upiReceived: acc.upiReceived + (e.upiReceived || 0),
@@ -230,6 +249,7 @@ export const getEntries = async (req, res) => {
       {
         kitchenSale: 0,
         coffeeShop: 0,
+        counterSale: 0,
         officialCr: 0,
         personalCr: 0,
         upiReceived: 0,
@@ -341,8 +361,37 @@ export const updateEntry = async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
+    const incomingDate = new Date(req.body.date);
+    if (Number.isNaN(incomingDate.getTime()))
+      return res.status(400).json({ success: false, message: "Invalid date" });
+
+    const todayUTC = new Date(
+      Date.UTC(
+        new Date().getUTCFullYear(),
+        new Date().getUTCMonth(),
+        new Date().getUTCDate(),
+      ),
+    );
+    if (incomingDate > todayUTC)
+      return res.status(400).json({
+        success: false,
+        message: "Cannot update an entry to a future date.",
+      });
+
+    const duplicateQuery = {
+      _id: { $ne: existing._id },
+      date: incomingDate,
+    };
+    if (existing.shop) duplicateQuery.shop = existing.shop;
+    const duplicate = await DayBook.exists(duplicateQuery);
+    if (duplicate)
+      return res.status(409).json({
+        success: false,
+        message: "Entry already exists. Change the data entry for that date.",
+      });
+
     const computed = recompute(req.body);
-    const setObj = { $set: computed };
+    const setObj = { $set: { date: req.body.date, ...computed } };
 
     if (req.user.role === "superadmin" && req.body.shop) {
       setObj.$set.shop = req.body.shop;
@@ -463,6 +512,7 @@ export const getMonthlySummary = async (req, res) => {
           totalSale: { $sum: "$totalSale" },
           kitchenSale: { $sum: "$kitchenSale" },
           coffeeShop: { $sum: "$coffeeShop" },
+          counterSale: { $sum: "$counterSale" },
           officialCr: { $sum: "$officialCr" },
           personalCr: { $sum: "$personalCr" },
           upiReceived: { $sum: "$upiReceived" },
@@ -495,6 +545,7 @@ export const getMonthlySummary = async (req, res) => {
           totalSale: 1,
           kitchenSale: 1,
           coffeeShop: 1,
+          counterSale: 1,
           officialCr: 1,
           personalCr: 1,
           upiReceived: 1,

@@ -94,6 +94,7 @@ export const DEFAULT_EXPENSE_CATS = [
   "Vendor",
   "Conveyance",
   "Travel Exp",
+  "Extra",
 ];
 
 /* ─── Formatters ─────────────────────────────────────────────────────────── */

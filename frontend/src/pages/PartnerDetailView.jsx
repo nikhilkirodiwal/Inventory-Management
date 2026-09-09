@@ -835,6 +835,14 @@ export default function PartnerDetailView() {
                           ? "Received (in)"
                           : "Transferred (out)"}
                       </Badge>
+                      {t.source === "cashToOffice" && (
+                        <span
+                          className="ml-1.5 text-[10px] font-semibold"
+                          style={{ color: "var(--accent-text)" }}
+                        >
+                          From Day Book
+                        </span>
+                      )}
                     </td>
                     <td
                       className="px-4 py-3 text-xs"
@@ -854,17 +862,26 @@ export default function PartnerDetailView() {
                       ₹{fmt(t.amount)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => setDeleteTarget(t)}
-                        className="text-xs px-2 py-1 rounded-md border"
-                        style={{
-                          borderColor: "var(--danger-border)",
-                          color: "var(--danger-text)",
-                          background: "var(--danger-soft)",
-                        }}
-                      >
-                        Del
-                      </button>
+                      {t.source === "cashToOffice" ? (
+                        <span
+                          className="text-[10px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Edit in Day Book
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteTarget(t)}
+                          className="text-xs px-2 py-1 rounded-md border"
+                          style={{
+                            borderColor: "var(--danger-border)",
+                            color: "var(--danger-text)",
+                            background: "var(--danger-soft)",
+                          }}
+                        >
+                          Del
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

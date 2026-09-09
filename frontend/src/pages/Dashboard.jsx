@@ -4,7 +4,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import API from "../api/axios";
 import useMonthlyDaybook from "../hooks/useMonthlyDaybook";
-import { Badge, BreakdownModal } from "../components/DaybookUI";
+import { Badge, BreakdownModal, ConfirmDialog } from "../components/DaybookUI";
 import {
   toMonthKey,
   displayMonth,
@@ -226,6 +226,7 @@ function PersonEntryPopup({
   onClose,
   onSave,
   showCredited = false,
+  partners = [],
 }) {
   const blankRow = () =>
     showCredited
@@ -245,6 +246,16 @@ function PersonEntryPopup({
   const addRow = () => setRows((p) => [...p, blankRow()]);
   const upd = (i, k, v) =>
     setRows((p) => p.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const selectPartner = (i, partnerId) => {
+    const partner = partners.find((p) => p._id === partnerId);
+    setRows((p) =>
+      p.map((r, j) =>
+        j === i
+          ? { ...r, partner: partnerId || null, name: partner?.name || r.name }
+          : r,
+      ),
+    );
+  };
   const del = (i) => setRows((p) => p.filter((_, j) => j !== i));
   const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   return (
@@ -254,7 +265,7 @@ function PersonEntryPopup({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="rounded-2xl w-full max-w-md border"
+        className="rounded-2xl w-full max-w-xl border"
         style={{
           background: "var(--bg-surface)",
           borderColor: "var(--border)",
@@ -292,6 +303,25 @@ function PersonEntryPopup({
                 }}
               >
                 <div className="flex gap-2 items-center">
+                  {partners.length > 0 && (
+                    <select
+                      value={r.partner || ""}
+                      onChange={(e) => selectPartner(i, e.target.value)}
+                      className="w-40 px-3 py-2 rounded-lg border text-sm outline-none"
+                      style={{
+                        background: "var(--bg-elevated)",
+                        borderColor: "var(--border)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <option value="">Select partner</option>
+                      {partners.map((partner) => (
+                        <option key={partner._id} value={partner._id}>
+                          {partner.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     placeholder="Name"
                     value={r.name}
@@ -467,7 +497,7 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col border"
+        className="rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col border"
         style={{
           background: "var(--bg-surface)",
           borderColor: "var(--border)",
@@ -700,7 +730,7 @@ function ExpensePopup({ expenses, onClose, onSave }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col border"
+        className="rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col border"
         style={{
           background: "var(--bg-surface)",
           borderColor: "var(--border)",
@@ -946,6 +976,59 @@ function DeleteModal({ entry, onCancel, onConfirm }) {
   );
 }
 
+function NoticeDialog({ title, message, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-90 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,.6)" }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border p-5"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--danger-border)",
+          boxShadow: "var(--shadow)",
+        }}
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-lg"
+            style={{
+              background: "var(--danger-soft)",
+              color: "var(--danger-text)",
+            }}
+          >
+            !
+          </span>
+          <div>
+            <h3
+              className="font-bold text-base"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {title}
+            </h3>
+            <p
+              className="text-sm mt-1 leading-relaxed"
+              style={{ color: "var(--text-sec)" }}
+            >
+              {message}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full mt-5 px-4 py-2 rounded-lg text-sm font-semibold text-white"
+          style={{ background: "var(--accent)" }}
+        >
+          Understood
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ─── DetailModal (View) ──────────────────────────────────────────────────── */
 function DetailModal({ entry, onClose }) {
   if (!entry) return null;
@@ -1141,6 +1224,78 @@ function DetailModal({ entry, onClose }) {
             </div>
           )}
 
+          {/* Counter sale sub-tabs */}
+          {(entry.counterSubTabs || []).length > 0 && (
+            <div>
+              <h3
+                className="font-bold text-base mb-3"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Counter Sale Breakdown
+              </h3>
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {entry.counterSubTabs.map((tab, i) => (
+                  <div
+                    key={i}
+                    className="rounded-2xl border p-4"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border-sub)",
+                    }}
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <h4
+                        className="font-semibold"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {tab.name}
+                      </h4>
+                      <span
+                        className="font-bold"
+                        style={{ color: "var(--accent-text)" }}
+                      >
+                        ₹{fmt(subTabTotal(tab))}
+                      </span>
+                    </div>
+                    {tab.entries?.length > 0 ? (
+                      <div className="space-y-2">
+                        {tab.entries.map((item, j) => (
+                          <div
+                            key={j}
+                            className="flex justify-between text-sm rounded-lg px-3 py-2"
+                            style={{ background: "var(--bg-surface)" }}
+                          >
+                            <span className="min-w-0 truncate">
+                              {item.name}
+                              {item.note && (
+                                <span
+                                  className="ml-1 italic"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  ({item.note})
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-medium shrink-0 ml-3">
+                              ₹{fmt(item.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p
+                        className="text-xs"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Direct amount entry
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Credit entries */}
           <h3
             className="font-bold text-base mb-3"
@@ -1160,6 +1315,11 @@ function DetailModal({ entry, onClose }) {
                 entries: entry.personalCrEntries || [],
                 total: entry.personalCr,
                 showCredited: true,
+              },
+              {
+                label: "UPI Received",
+                entries: entry.upiReceivedEntries || [],
+                total: entry.upiReceived,
               },
               {
                 label: "Cash to Office",
@@ -1316,7 +1476,8 @@ function DetailModal({ entry, onClose }) {
             {[
               {
                 label: "Total Sale",
-                formula: "Kitchen Sale + Coffee Shop (incl. all sub-tabs)",
+                formula:
+                  "Kitchen Sale + Coffee Shop + Counter Sale (incl. all sub-tabs)",
               },
               {
                 label: "Total Cash",
@@ -1387,9 +1548,20 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                 : (e.coffeeShop ?? e.coffeeShopSale ?? ""),
           },
         ],
+        counterSubTabs: e.counterSubTabs || [
+          {
+            name: "Counter Sale",
+            entries: e.counterSaleEntries || [],
+            directAmount:
+              e.counterSaleEntries && e.counterSaleEntries.length > 0
+                ? ""
+                : (e.counterSale ?? ""),
+          },
+        ],
         officialCrEntries: e.officialCrEntries || [],
         personalCrEntries: e.personalCrEntries || [],
         upiReceived: e.upiReceived ?? 0,
+        upiReceivedEntries: e.upiReceivedEntries || [],
         cashToOffice: e.cashToOffice ?? 0,
         cashToOfficeEntries: e.cashToOfficeEntries || [],
         salaryEntries: e.salaryEntries || [],
@@ -1402,9 +1574,11 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       openingCash: lastCashInHand ?? 0,
       kitchenSubTabs: [{ name: "Kitchen Sale", entries: [], directAmount: "" }],
       coffeeSubTabs: [{ name: "Coffee Shop", entries: [], directAmount: "" }],
+      counterSubTabs: [{ name: "Counter Sale", entries: [], directAmount: "" }],
       officialCrEntries: [],
       personalCrEntries: [],
       upiReceived: "",
+      upiReceivedEntries: [],
       cashToOffice: "",
       cashToOfficeEntries: [],
       salaryEntries: [],
@@ -1417,24 +1591,40 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const [form, setForm] = useState(() => initForm(entry));
   const [kitchenPopup, setKitchenPopup] = useState(false);
   const [coffeePopup, setCoffeePopup] = useState(false);
+  const [counterPopup, setCounterPopup] = useState(false);
   const [officialPopup, setOfficialPopup] = useState(false);
   const [personalPopup, setPersonalPopup] = useState(false);
   const [cashOfficePopup, setCashOfficePopup] = useState(false);
   const [salaryPopup, setSalaryPopup] = useState(false);
   const [advancePopup, setAdvancePopup] = useState(false);
   const [purchaseCreditPopup, setPurchaseCreditPopup] = useState(false);
+  const [upiPopup, setUpiPopup] = useState(false);
   const [expensePopup, setExpensePopup] = useState(false);
   const [dateError, setDateError] = useState("");
+  const [dateConfirmOpen, setDateConfirmOpen] = useState(false);
+  const [partnerOptions, setPartnerOptions] = useState([]);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    API.get("/partners/options")
+      .then(({ data }) => setPartnerOptions(data.success ? data.data || [] : []))
+      .catch(() => setPartnerOptions([]));
+  }, []);
 
   const kitchenSale = form.kitchenSubTabs.reduce(
     (s, t) => s + subTabTotal(t),
     0,
   );
   const coffeeShop = form.coffeeSubTabs.reduce((s, t) => s + subTabTotal(t), 0);
+  const counterSale = form.counterSubTabs.reduce(
+    (s, t) => s + subTabTotal(t),
+    0,
+  );
   const officialCr = sumPersonEntries(form.officialCrEntries);
   const personalCr = sumPersonEntries(form.personalCrEntries);
-  const upiReceived = Number(form.upiReceived) || 0;
+  const upiReceived = form.upiReceivedEntries.length
+    ? sumPersonEntries(form.upiReceivedEntries)
+    : Number(form.upiReceived) || 0;
   const cashToOffice =
     form.cashToOfficeEntries.length > 0
       ? sumPersonEntries(form.cashToOfficeEntries)
@@ -1450,7 +1640,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const cashExpenses = sumExpenses(form.expenseEntries) + salary + advance;
 
   // ④ totalSale = sum of all sale tabs (kitchen + coffee + their sub-tabs)
-  const totalSale = kitchenSale + coffeeShop;
+  const totalSale = kitchenSale + coffeeShop + counterSale;
   // ⑧ totalCash = openingCash + totalSale - officialCr - personalCr - upiReceived
   const totalCash =
     openingCash + totalSale - officialCr - personalCr - upiReceived;
@@ -1458,8 +1648,9 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const cashInHand = totalCash - cashExpenses - cashToOffice;
 
   const handleDateChange = (v) => {
-    if (!entry && existingDates.includes(v))
-      setDateError("Entry already exists for this date.");
+    const originalDate = entry?.date?.split("T")[0] ?? entry?.date;
+    if (existingDates.includes(v) && v !== originalDate)
+      setDateError("Entry already exists. Change the data entry for that date.");
     else if (new Date(v) > new Date(todayStr()))
       setDateError("Cannot enter a future date.");
     else setDateError("");
@@ -1469,6 +1660,15 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (dateError) return;
+    const originalDate = entry?.date?.split("T")[0] ?? entry?.date;
+    if (entry && form.date !== originalDate) {
+      setDateConfirmOpen(true);
+      return;
+    }
+    submitEntry();
+  };
+
+  const submitEntry = () => {
     const expObj = {};
     Object.entries(form.expenseEntries).forEach(([k, v]) => {
       if (Number(v) > 0) expObj[k] = Number(v);
@@ -1483,11 +1683,15 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       coffeeShop,
       coffeeShopSale: coffeeShop,
       coffeeShopEntries: flattenSubTabsToEntries(form.coffeeSubTabs),
+      counterSubTabs: form.counterSubTabs,
+      counterSale,
+      counterSaleEntries: flattenSubTabsToEntries(form.counterSubTabs),
       officialCr,
       officialCrEntries: form.officialCrEntries,
       personalCr,
       personalCrEntries: form.personalCrEntries,
       upiReceived,
+      upiReceivedEntries: form.upiReceivedEntries,
       cashToOffice,
       cashToOfficeEntries: form.cashToOfficeEntries,
       salary,
@@ -1545,7 +1749,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto border"
+        className="rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-y-auto border"
         style={{
           background: "var(--bg-surface)",
           borderColor: "var(--border)",
@@ -1596,12 +1800,23 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                 }}
               />
               {dateError && (
-                <p
-                  className="text-xs mt-1"
-                  style={{ color: "var(--danger-text)" }}
+                <div
+                  className="flex items-start gap-2 mt-2 rounded-lg border px-3 py-2"
+                  style={{
+                    background: "var(--danger-soft)",
+                    borderColor: "var(--danger-border)",
+                  }}
                 >
-                  {dateError}
-                </p>
+                  <span
+                    className="font-bold"
+                    style={{ color: "var(--danger-text)" }}
+                  >
+                    !
+                  </span>
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--danger-text)" }}>
+                    {dateError}
+                  </p>
+                </div>
               )}
             </div>
             <div>
@@ -1648,6 +1863,13 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                 count={null}
                 onClick={() => setCoffeePopup(true)}
                 hint="Manage coffee sub-tabs…"
+              />
+              <BtnField
+                label="Counter Sale"
+                total={counterSale}
+                count={null}
+                onClick={() => setCounterPopup(true)}
+                hint="Manage counter sub-tabs…"
               />
             </div>
           </div>
@@ -1704,19 +1926,12 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                 hint="Enter by person…"
               />
               <div className="col-span-2 sm:col-span-1">
-                <label
-                  className="block text-xs font-semibold mb-1.5"
-                  style={ls}
-                >
-                  UPI Received
-                </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.upiReceived}
-                  onChange={(e) => set("upiReceived", e.target.value)}
-                  className={inp}
-                  style={is}
+                <BtnField
+                  label="UPI Received"
+                  total={upiReceived}
+                  count={form.upiReceivedEntries.length || null}
+                  onClick={() => setUpiPopup(true)}
+                  hint="Add UPI receipts…"
                 />
               </div>
             </div>
@@ -1848,7 +2063,9 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                 hint="Enter advance by person…"
               />
             </div>
-
+            <span className="block text-xs font-semibold mb-1.5">
+              Other Expenses
+            </span>
             <button
               type="button"
               onClick={() => setExpensePopup(true)}
@@ -2006,6 +2223,29 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
           }}
         />
       )}
+      {counterPopup && (
+        <SaleSubTabPopup
+          title="Counter Sale"
+          subTabs={form.counterSubTabs}
+          onClose={() => setCounterPopup(false)}
+          onSave={(tabs) => {
+            set("counterSubTabs", tabs);
+            setCounterPopup(false);
+          }}
+        />
+      )}
+      {upiPopup && (
+        <PersonEntryPopup
+          title="UPI Received"
+          entries={form.upiReceivedEntries}
+          onClose={() => setUpiPopup(false)}
+          onSave={(rows) => {
+            set("upiReceivedEntries", rows);
+            set("upiReceived", sumPersonEntries(rows));
+            setUpiPopup(false);
+          }}
+        />
+      )}
       {officialPopup && (
         <PersonEntryPopup
           title="Official Credit"
@@ -2033,6 +2273,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         <PersonEntryPopup
           title="Cash to Office"
           entries={form.cashToOfficeEntries}
+          partners={partnerOptions}
           onClose={() => setCashOfficePopup(false)}
           onSave={(rows) => {
             set("cashToOfficeEntries", rows);
@@ -2083,6 +2324,18 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
           }}
         />
       )}
+      {dateConfirmOpen && (
+        <ConfirmDialog
+          title="Change entry date?"
+          message={`This will move the entry from ${entry?.date?.split("T")[0]} to ${form.date}.`}
+          confirmLabel="Move Entry"
+          onCancel={() => setDateConfirmOpen(false)}
+          onConfirm={() => {
+            setDateConfirmOpen(false);
+            submitEntry();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2120,6 +2373,7 @@ export default function Dashboard() {
   const [viewEntry, setViewEntry] = useState(null);
   const [breakdownModal, setBreakdownModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [notice, setNotice] = useState(null);
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("user"));
@@ -2267,23 +2521,35 @@ export default function Dashboard() {
         ? await API.put(`/daybook/${editEntry._id}`, formData)
         : await API.post("/daybook", formData);
       if (!data.success) {
-        alert("Save failed: " + data.message);
+        setNotice({ title: "Save failed", message: data.message });
         return;
       }
       const mk = data.data.date.slice(0, 7);
+      const oldMk = editEntry?.date?.slice(0, 7);
       setAllData((p) => {
-        const list = p[mk] || [];
+        const list = (p[mk] || []).filter(
+          (e) => !isEdit || e._id !== editEntry._id,
+        );
         return {
           ...p,
+          ...(isEdit && oldMk && oldMk !== mk
+            ? { [oldMk]: (p[oldMk] || []).filter((e) => e._id !== editEntry._id) }
+            : {}),
           [mk]: isEdit
-            ? list.map((e) => (e._id === editEntry._id ? data.data : e))
+            ? [...list, data.data].sort(
+                (a, b) => new Date(a.date) - new Date(b.date),
+              )
             : [...list, data.data].sort(
                 (a, b) => new Date(a.date) - new Date(b.date),
               ),
         };
       });
     } catch (err) {
-      alert("Save failed: " + (err?.response?.data?.message || err.message));
+      setNotice({
+        title: "Save failed",
+        message: err?.response?.data?.message || err.message,
+      });
+      return;
     }
     setShowModal(false);
     setEditEntry(null);
@@ -2293,7 +2559,10 @@ export default function Dashboard() {
     try {
       await API.delete(`/daybook/${entry._id}`);
     } catch (err) {
-      alert("Delete failed: " + (err?.response?.data?.message || err.message));
+      setNotice({
+        title: "Delete failed",
+        message: err?.response?.data?.message || err.message,
+      });
     }
     const mk = entry.date.slice(0, 7);
     setAllData((p) => ({
@@ -2936,7 +3205,11 @@ export default function Dashboard() {
                               className="px-3 py-3 text-right tabular-nums"
                               style={{ color: "var(--text-sec)" }}
                             >
-                              {fmt(row.upiReceived)}
+                              <ClickCell
+                                title="UPI Received Breakdown"
+                                value={row.upiReceived}
+                                items={row.upiReceivedEntries || []}
+                              />
                             </td>
                             {/* ⑧ Total Cash */}
                             <td
@@ -3233,6 +3506,13 @@ export default function Dashboard() {
           entry={deleteTarget}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => handleDelete(deleteTarget)}
+        />
+      )}
+      {notice && (
+        <NoticeDialog
+          title={notice.title}
+          message={notice.message}
+          onClose={() => setNotice(null)}
         />
       )}
     </div>

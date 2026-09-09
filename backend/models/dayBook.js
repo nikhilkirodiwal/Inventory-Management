@@ -36,6 +36,16 @@ const saleSubTabSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const cashToOfficeEntrySchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    partner: { type: mongoose.Schema.Types.ObjectId, ref: "Partner", default: null },
+    amount: { type: Number, default: 0 },
+    note: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
 const dayBookSchema = new mongoose.Schema(
   {
     shop: { type: mongoose.Schema.Types.ObjectId, ref: "Shop", default: null },
@@ -55,6 +65,11 @@ const dayBookSchema = new mongoose.Schema(
     coffeeSubTabs: [saleSubTabSchema],
     coffeeShopEntries: [personEntrySchema], // legacy flat breakdown, kept for old records
 
+    // Counter Sale — flexible sub-tabs, included in Total Sale
+    counterSale: { type: Number, default: 0 },
+    counterSubTabs: [saleSubTabSchema],
+    counterSaleEntries: [personEntrySchema],
+
     // ⑤ ⑥ Credits
     officialCr: { type: Number, default: 0 },
     officialCrEntries: [personEntrySchema], // "bill name" + amount (+ optional note)
@@ -63,6 +78,7 @@ const dayBookSchema = new mongoose.Schema(
 
     // ⑦ UPI Received
     upiReceived: { type: Number, default: 0 },
+    upiReceivedEntries: [personEntrySchema],
 
     // Legacy fields — no longer written to by new entries, kept so old records still read fine
     cafeSale: { type: Number, default: 0 },
@@ -75,7 +91,7 @@ const dayBookSchema = new mongoose.Schema(
 
     // ⑨ Cash to Office
     cashToOffice: { type: Number, default: 0 },
-    cashToOfficeEntries: [personEntrySchema],
+    cashToOfficeEntries: [cashToOfficeEntrySchema],
 
     // Salary — pulled out of the generic expense map into its own by-person
     // breakdown (who was paid, how much), while still counting toward Cash
@@ -122,6 +138,7 @@ const dayBookSchema = new mongoose.Schema(
       vendor: { type: Number, default: 0 },
       advance: { type: Number, default: 0 },
       grandTotal: { type: Number, default: 0 },
+      extra: { type: Number, default: 0 },
     },
   },
   { timestamps: true },

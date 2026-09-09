@@ -576,6 +576,14 @@ function SiteTransactionBlock({ site, onDeleteTxn }) {
                     >
                       {t.type === "receive" ? "Received" : "Transferred"}
                     </Badge>
+                    {t.source === "cashToOffice" && (
+                      <span
+                        className="ml-1.5 text-[10px] font-semibold"
+                        style={{ color: "var(--accent-text)" }}
+                      >
+                        From Day Book
+                      </span>
+                    )}
                   </td>
                   <td
                     className="px-4 py-2.5 text-xs"
@@ -593,17 +601,26 @@ function SiteTransactionBlock({ site, onDeleteTxn }) {
                     ₹{fmt(t.amount)}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <button
-                      onClick={() => onDeleteTxn(t)}
-                      className="text-xs px-2 py-1 rounded-md border"
-                      style={{
-                        borderColor: "var(--danger-border)",
-                        color: "var(--danger-text)",
-                        background: "var(--danger-soft)",
-                      }}
-                    >
-                      Del
-                    </button>
+                    {t.source === "cashToOffice" ? (
+                      <span
+                        className="text-[10px]"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Edit in Day Book
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onDeleteTxn(t)}
+                        className="text-xs px-2 py-1 rounded-md border"
+                        style={{
+                          borderColor: "var(--danger-border)",
+                          color: "var(--danger-text)",
+                          background: "var(--danger-soft)",
+                        }}
+                      >
+                        Del
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

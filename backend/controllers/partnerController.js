@@ -1,6 +1,44 @@
 import Partner from "../models/partner.js";
 import PartnerTransaction from "../models/partnerTransaction.js";
 import Shop from "../models/shop.js";
+import DayBook from "../models/dayBook.js";
+
+const cashOfficeTransactions = async (match = {}) => {
+  const rows = await DayBook.aggregate([
+    { $match: { "cashToOfficeEntries.partner": { $ne: null }, ...match } },
+    { $unwind: { path: "$cashToOfficeEntries", includeArrayIndex: "entryIndex" } },
+    { $match: { "cashToOfficeEntries.partner": { $ne: null } } },
+    {
+      $project: {
+        _id: {
+          $concat: [
+            "cash-office:",
+            { $toString: "$_id" },
+            ":",
+            { $toString: "$entryIndex" },
+          ],
+        },
+        partner: "$cashToOfficeEntries.partner",
+        shop: 1,
+        date: 1,
+        type: { $literal: "transfer" },
+        amount: "$cashToOfficeEntries.amount",
+        note: "$cashToOfficeEntries.note",
+        source: { $literal: "cashToOffice" },
+      },
+    },
+  ]);
+  return rows;
+};
+
+export const getPartnerOptions = async (req, res) => {
+  try {
+    const data = await Partner.find().select("_id name").sort({ name: 1 }).lean();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 const monthRange = (month) => {
@@ -52,7 +90,7 @@ export const getPartners = async (req, res) => {
     const partners = await Partner.find().sort({ createdAt: 1 }).lean();
     const partnerIds = partners.map((p) => p._id);
 
-    const [allTimeStats, monthStats, lastDates] = await Promise.all([
+    const [allTimeStats, monthStats, lastDates, cashAllTime, cashMonth] = await Promise.all([
       PartnerTransaction.aggregate([
         { $match: { partner: { $in: partnerIds } } },
         {
@@ -82,6 +120,33 @@ export const getPartners = async (req, res) => {
           },
         },
       ]),
+      DayBook.aggregate([
+        { $unwind: "$cashToOfficeEntries" },
+        { $match: { "cashToOfficeEntries.partner": { $in: partnerIds } } },
+        {
+          $group: {
+            _id: "$cashToOfficeEntries.partner",
+            total: { $sum: "$cashToOfficeEntries.amount" },
+            count: { $sum: 1 },
+            lastDate: { $max: "$date" },
+          },
+        },
+      ]),
+      DayBook.aggregate([
+        { $unwind: "$cashToOfficeEntries" },
+        {
+          $match: {
+            "cashToOfficeEntries.partner": { $in: partnerIds },
+            date: monthRange(month),
+          },
+        },
+        {
+          $group: {
+            _id: "$cashToOfficeEntries.partner",
+            total: { $sum: "$cashToOfficeEntries.amount" },
+          },
+        },
+      ]),
     ]);
 
     const allTimeMap = buildTypeMap(allTimeStats);
@@ -89,21 +154,37 @@ export const getPartners = async (req, res) => {
     const lastMap = Object.fromEntries(
       lastDates.map((d) => [String(d._id), d]),
     );
+    const cashAllMap = Object.fromEntries(
+      cashAllTime.map((d) => [String(d._id), d]),
+    );
+    const cashMonthMap = Object.fromEntries(
+      cashMonth.map((d) => [String(d._id), d.total]),
+    );
 
     const data = partners.map((p) => {
       const key = String(p._id);
       const at = allTimeMap[key] || { transferred: 0, received: 0 };
       const mo = monthMap[key] || { transferred: 0, received: 0 };
       const last = lastMap[key];
+      const cashAll = cashAllMap[key];
+      const cashToOfficeAllTime = cashAll?.total || 0;
+      const cashToOfficeMonthly = cashMonthMap[key] || 0;
+      const transferred = at.transferred + cashToOfficeAllTime;
+      const monthlyTransferred = mo.transferred + cashToOfficeMonthly;
       return {
         ...p,
-        allTime: { ...at, netBalance: at.received - at.transferred },
-        monthly: { ...mo, netBalance: mo.received - mo.transferred, month },
-        totalTransferred: at.transferred,
+        allTime: { ...at, transferred, netBalance: at.received - transferred },
+        monthly: { ...mo, transferred: monthlyTransferred, netBalance: mo.received - monthlyTransferred, month },
+        totalTransferred: transferred,
         totalReceived: at.received,
-        netBalance: at.received - at.transferred,
-        transactionCount: last?.count || 0,
-        lastTransactionDate: last?.lastDate || null,
+        cashToOfficeAllTime,
+        cashToOfficeMonthly,
+        netBalance: at.received - transferred,
+        transactionCount: (last?.count || 0) + (cashAll?.count || 0),
+        lastTransactionDate:
+          !last?.lastDate || cashAll?.lastDate > last.lastDate
+            ? cashAll?.lastDate || last?.lastDate || null
+            : last.lastDate,
       };
     });
 
@@ -181,9 +262,14 @@ export const getPartnerDetail = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Partner not found" });
 
-    const transactions = await PartnerTransaction.find({ partner: partner._id })
+    const manualTransactions = await PartnerTransaction.find({ partner: partner._id })
       .populate("shop", "name")
       .sort({ date: -1 });
+    const cashTransactions = await cashOfficeTransactions({
+      "cashToOfficeEntries.partner": partner._id,
+    });
+    const transactions = [...manualTransactions.map((t) => t.toObject()), ...cashTransactions]
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.json({ success: true, data: { partner, transactions } });
   } catch (err) {
@@ -208,8 +294,16 @@ export const getPartnerOverview = async (req, res) => {
       PartnerTransaction.find({ partner: partner._id }).sort({ date: -1 }),
     ]);
 
+    const cashTransactions = await cashOfficeTransactions({
+      "cashToOfficeEntries.partner": partner._id,
+    });
+    const allTransactions = [
+      ...transactions.map((t) => t.toObject()),
+      ...cashTransactions,
+    ];
+
     const byShop = {};
-    transactions.forEach((t) => {
+    allTransactions.forEach((t) => {
       const key = t.shop ? String(t.shop) : "unassigned";
       byShop[key] = byShop[key] || [];
       byShop[key].push(t);
@@ -236,7 +330,7 @@ export const getPartnerOverview = async (req, res) => {
       ...buildStats(unassignedList),
     });
 
-    const allTimeTotals = buildStats(transactions);
+    const allTimeTotals = buildStats(allTransactions);
 
     res.json({ success: true, data: { partner, shops, allTimeTotals } });
   } catch (err) {
@@ -282,6 +376,24 @@ export const getPartnerShops = async (req, res) => {
       statMap[key].count += g.count;
       if (!statMap[key].lastDate || g.lastDate > statMap[key].lastDate)
         statMap[key].lastDate = g.lastDate;
+    });
+
+    const cashRows = await cashOfficeTransactions({
+      date: monthRange(month),
+      "cashToOfficeEntries.partner": partner._id,
+    });
+    cashRows.forEach((row) => {
+      const key = row.shop ? String(row.shop) : "unassigned";
+      statMap[key] = statMap[key] || {
+        transferred: 0,
+        received: 0,
+        count: 0,
+        lastDate: null,
+      };
+      statMap[key].transferred += Number(row.amount) || 0;
+      statMap[key].count += 1;
+      if (!statMap[key].lastDate || row.date > statMap[key].lastDate)
+        statMap[key].lastDate = row.date;
     });
 
     // Every shop gets a card, even with zero activity this month
@@ -369,7 +481,15 @@ export const getPartnerShopTransactions = async (req, res) => {
       match.shop = shop._id;
     }
 
-    const transactions = await PartnerTransaction.find(match).sort({ date: 1 });
+    const manualTransactions = await PartnerTransaction.find(match).sort({ date: 1 });
+    const cashTransactions = (await cashOfficeTransactions({
+      date: { $exists: true },
+      "cashToOfficeEntries.partner": partner._id,
+    })).filter((t) => (t.shop ? String(t.shop) : "unassigned") === shopId);
+    const transactions = [
+      ...manualTransactions.map((t) => t.toObject()),
+      ...cashTransactions,
+    ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
     res.json({ success: true, data: { partner, shop, shopId, transactions } });
   } catch (err) {
