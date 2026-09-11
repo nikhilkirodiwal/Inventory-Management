@@ -69,12 +69,15 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
   const primaryField = fields[0];
 
   useEffect(() => {
-    API.get("/entry-fields/names")
+    if (!user?.role) return;
+
+    const params = user.shop ? { shop: user.shop } : undefined;
+    API.get("/entry-fields/names", { params })
       .then(({ data }) => {
         if (data.success) setCommonNames(data.data || loadPersonNames());
       })
       .catch(() => {});
-  }, []);
+  }, [user?.role, user?.shop]);
 
   useEffect(() => {
     monthsInYear.forEach((mk) => {

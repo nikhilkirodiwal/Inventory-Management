@@ -284,23 +284,10 @@ export function PersonNamesSettings({ names, tabNames = {}, onSave, onClose }) {
           <button type="button" onClick={onClose} style={{ color: "var(--text-muted)" }}>✕</button>
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>Save names once and select them while adding entries. You can still type a new name directly.</p>
-        <div className="space-y-4">
-          {PERSON_NAME_FIELDS.filter(({ key }) => key !== "expenseSubnames").map(({ key, label }) => (
-            <section key={key}>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--text-sec)" }}>{label}</label>
-              <div className="flex gap-2">
-                <input value={newNames[key] || ""} onChange={(event) => setNewNames((previous) => ({ ...previous, [key]: event.target.value }))} onKeyDown={(event) => event.key === "Enter" && (event.preventDefault(), addName(key))} placeholder={`Add ${label.toLowerCase()} name`} className="flex-1 px-3 py-1.5 rounded-lg border text-sm outline-none" style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
-                <button type="button" onClick={() => addName(key)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: "var(--accent)" }}>Add</button>
-              </div>
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {draft[key].map((name) => <button type="button" key={name} onClick={() => removeName(key, name)} className="text-xs px-2 py-1 rounded-full border" title="Remove name" style={{ borderColor: "var(--accent-border)", color: "var(--accent-text)", background: "var(--accent-soft)" }}>{name} ×</button>)}
-              </div>
-            </section>
-          ))}
-          {[
-            ["counterSale", "Counter Sale"],
+        <div className="space-y-4">{[
             ["kitchenSale", "Kitchen Sale"],
             ["coffeeShop", "Coffee Shop"],
+            ["counterSale", "Counter Sale"],
           ].map(([key, label]) => (
             <section key={`tabs-${key}`}>
               <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--text-sec)" }}>
@@ -324,6 +311,19 @@ export function PersonNamesSettings({ names, tabNames = {}, onSave, onClose }) {
               </div>
             </section>
           ))}
+          {PERSON_NAME_FIELDS.filter(({ key }) => key !== "expenseSubnames").map(({ key, label }) => (
+            <section key={key}>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--text-sec)" }}>{label}</label>
+              <div className="flex gap-2">
+                <input value={newNames[key] || ""} onChange={(event) => setNewNames((previous) => ({ ...previous, [key]: event.target.value }))} onKeyDown={(event) => event.key === "Enter" && (event.preventDefault(), addName(key))} placeholder={`Add ${label.toLowerCase()} name`} className="flex-1 px-3 py-1.5 rounded-lg border text-sm outline-none" style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
+                <button type="button" onClick={() => addName(key)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: "var(--accent)" }}>Add</button>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {draft[key].map((name) => <button type="button" key={name} onClick={() => removeName(key, name)} className="text-xs px-2 py-1 rounded-full border" title="Remove name" style={{ borderColor: "var(--accent-border)", color: "var(--accent-text)", background: "var(--accent-soft)" }}>{name} ×</button>)}
+              </div>
+            </section>
+          ))}
+          
           <section>
             <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--text-sec)" }}>
               Expense subnames
