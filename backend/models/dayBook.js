@@ -114,7 +114,13 @@ const dayBookSchema = new mongoose.Schema(
     // ⑩ Cash Expenses — the generic category map (Salary/Advance no longer
     // live as keys in here; they're tracked above and added on top).
     expenseEntries: { type: Map, of: Number, default: {} },
-    cashExpenses: { type: Number, default: 0 }, // = sum(expenseEntries) + salary + advance
+    // Optional named breakdown inside each generic expense category, e.g.
+    // { Ration: [{ name: "Rice", amount: 500 }] }.
+    expenseSubEntries: { type: Map, of: [personEntrySchema], default: {} },
+    // Overtime is a named cash expense, kept separate from generic categories.
+    overtime: { type: Number, default: 0 },
+    overtimeEntries: [personEntrySchema],
+    cashExpenses: { type: Number, default: 0 }, // = sum(expenseEntries) + salary + advance + overtime
 
     // ⑪ Cash In Hand = Total Cash − Cash Expenses − Cash to Office
     // becomes next day's Opening Cash

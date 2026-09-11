@@ -5,6 +5,15 @@ import { useAuth } from "../context/AuthContext";
 import API from "../api/axios";
 import useMonthlyDaybook from "../hooks/useMonthlyDaybook";
 import { Badge, BreakdownModal, ConfirmDialog } from "../components/DaybookUI";
+import PersonEntryFields, {
+  PersonNamesSettings,
+} from "../components/PersonEntryFields";
+import {
+  flattenExpenseSubnames,
+  emptySaleTabNames,
+  loadPersonNames,
+  normalizeExpenseSubnames,
+} from "../utils/personNames";
 import {
   toMonthKey,
   displayMonth,
@@ -28,13 +37,14 @@ import {
 } from "../utils/daybook";
 
 /* ─── COLUMN DEFINITIONS (order per spec) ─────────────────────────────────── */
-// date, openingCash, kitchenSale, coffeeShop, totalSale, officialCr, personalCr,
+// date, openingCash, kitchenSale, coffeeShop, counterSale, totalSale, officialCr, personalCr,
 // upiReceived, totalCash, cashToOffice, cashExpenses, cashInHand
 const ALL_COLS = [
   { key: "date", label: "Date", align: "left" },
   { key: "openingCash", label: "Op. Cash", align: "right" },
   { key: "kitchenSale", label: "Kitchen", align: "right" },
   { key: "coffeeShop", label: "Coffee Shop", align: "right" },
+  { key: "counterSale", label: "Counter Sale", align: "right" },
   { key: "totalSale", label: "Total Sale", align: "right" },
   { key: "officialCr", label: "Off. Cr", align: "right" },
   { key: "personalCr", label: "Per. Cr", align: "right" },
@@ -457,7 +467,7 @@ function PersonEntryPopup({
  * Shows existing named sub-tabs (e.g. "Café Sale", "Café Night", or any custom name)
  * with amounts, lets user add custom tabs, and gives the total.
  */
-function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
+function SaleSubTabPopup({ title, subTabs, onClose, onSave, personNames, tabNames, fieldKey, onPersonNames }) {
   const [tabs, setTabs] = useState(
     subTabs.length > 0
       ? subTabs
@@ -465,6 +475,7 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
   );
   const [newTabName, setNewTabName] = useState("");
   const [openEntryIdx, setOpenEntryIdx] = useState(null);
+  const savedTabNames = tabNames?.[fieldKey] || [];
 
   const addTab = () => {
     const n = newTabName.trim();
@@ -534,6 +545,7 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
             >
               <div className="flex gap-2 items-center">
                 <input
+                  list={`sale-tab-names-${fieldKey}`}
                   placeholder="Tab name (e.g. Café Sale)"
                   value={tab.name}
                   onChange={(e) => updTabName(i, e.target.value)}
@@ -619,6 +631,9 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
               </div>
             </div>
           ))}
+          <datalist id={`sale-tab-names-${fieldKey}`}>
+            {savedTabNames.map((name) => <option key={name} value={name} />)}
+          </datalist>
           <div className="flex gap-2 pt-2">
             <input
               placeholder="New tab name…"
@@ -643,6 +658,28 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
               + Add Tab
             </button>
           </div>
+          {savedTabNames.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] mr-1" style={{ color: "var(--text-muted)" }}>
+                Suggested tabs:
+              </span>
+              {savedTabNames.map((name) => (
+                <button
+                  type="button"
+                  key={`new-${name}`}
+                  onClick={() => setNewTabName(name)}
+                  className="px-2 py-1 rounded-lg border text-[10px]"
+                  style={{
+                    borderColor: "var(--accent-border)",
+                    color: "var(--accent-text)",
+                    background: "var(--accent-soft)",
+                  }}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div
           className="px-5 py-4 border-t shrink-0 flex items-center justify-between"
@@ -679,9 +716,11 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
         </div>
       </div>
       {openEntryIdx !== null && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title={`${tabs[openEntryIdx]?.name || "Tab"} — Person Entries`}
           entries={tabs[openEntryIdx]?.entries || []}
+          commonNames={personNames[fieldKey] || []}
+          onRememberNames={onPersonNames}
           onClose={() => setOpenEntryIdx(null)}
           onSave={(rows) => saveEntries(openEntryIdx, rows)}
         />
@@ -691,19 +730,51 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave }) {
 }
 
 /* ─── ExpensePopup ────────────────────────────────────────────────────────── */
-function ExpensePopup({ expenses, onClose, onSave }) {
+function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onClose, onSave }) {
+  const expenseNameSuggestions = flattenExpenseSubnames(commonNames);
   const stripLegacy = (list) =>
     list.filter((c) => !/^salary$/i.test(c) && !/^advance$/i.test(c));
   const [cats, setCats] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem("expenseCats") || "null");
-      return stripLegacy(stored || DEFAULT_EXPENSE_CATS);
+      return [
+        ...new Set(
+          stripLegacy(stored || DEFAULT_EXPENSE_CATS).concat(
+            Object.keys(expenseSubEntries || {}),
+          ),
+        ),
+      ];
     } catch {
-      return DEFAULT_EXPENSE_CATS;
+      return [...new Set(DEFAULT_EXPENSE_CATS.concat(Object.keys(expenseSubEntries || {})))];
     }
   });
   const [vals, setVals] = useState(() => normalizeExpenses(expenses));
+  const [subEntries, setSubEntries] = useState(() =>
+    Object.fromEntries(
+      Object.entries(expenseSubEntries || {}).map(([category, items]) => [
+        category,
+        Array.isArray(items) ? items : [],
+      ]),
+    ),
+  );
   const [newCat, setNewCat] = useState("");
+  const addSubEntry = (category) =>
+    setSubEntries((previous) => ({
+      ...previous,
+      [category]: [...(previous[category] || []), { name: "", amount: "", note: "" }],
+    }));
+  const updateSubEntry = (category, index, key, value) =>
+    setSubEntries((previous) => ({
+      ...previous,
+      [category]: (previous[category] || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item,
+      ),
+    }));
+  const removeSubEntry = (category, index) =>
+    setSubEntries((previous) => ({
+      ...previous,
+      [category]: (previous[category] || []).filter((_, itemIndex) => itemIndex !== index),
+    }));
   const addCat = () => {
     const c = newCat.trim();
     if (!c || cats.includes(c)) return;
@@ -721,8 +792,24 @@ function ExpensePopup({ expenses, onClose, onSave }) {
       delete n[c];
       return n;
     });
+    setSubEntries((previous) => {
+      const next = { ...previous };
+      delete next[c];
+      return next;
+    });
   };
-  const total = sumExpenses(vals);
+  const categoryTotals = Object.fromEntries(
+    cats.map((category) => [
+      category,
+      (subEntries[category] || []).length > 0
+        ? (subEntries[category] || []).reduce(
+            (sum, item) => sum + (Number(item.amount) || 0),
+            0,
+          )
+        : Number(vals[category]) || 0,
+    ]),
+  );
+  const total = sumExpenses(categoryTotals);
   return (
     <div
       className="fixed inset-0 z-60 flex items-center justify-center p-4"
@@ -752,42 +839,93 @@ function ExpensePopup({ expenses, onClose, onSave }) {
           </button>
         </div>
         <div className="overflow-y-auto flex-1 p-5">
+          {expenseNameSuggestions.length > 0 && (
+            <div
+              className="mb-4 rounded-xl border p-3"
+              style={{
+                borderColor: "var(--accent-border)",
+                background: "var(--accent-soft)",
+              }}
+            >
+              <p
+                className="text-xs font-semibold mb-2"
+                style={{ color: "var(--accent-text)" }}
+              >
+                Saved expense subnames
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {expenseNameSuggestions.map((name) => (
+                  <button
+                    type="button"
+                    key={name}
+                    onClick={() => {
+                      const category = name;
+                      const savedSubnames = normalizeExpenseSubnames(commonNames)[category] || [];
+                      const updated = cats.includes(category)
+                        ? cats
+                        : [...cats, category];
+                      setCats(updated);
+                      setSubEntries((previous) => {
+                        const existingItems = previous[category] || [];
+                        const additions = savedSubnames
+                          .filter((subname) => !existingItems.some((item) => item.name === subname))
+                          .map((subname) => ({ name: subname, amount: "", note: "" }));
+                        return additions.length > 0
+                          ? { ...previous, [category]: [...existingItems, ...additions] }
+                          : previous;
+                      });
+                      localStorage.setItem("expenseCats", JSON.stringify(updated));
+                    }}
+                    className="px-2 py-1 rounded-lg border text-xs font-medium"
+                    style={{
+                      borderColor: "var(--accent-border)",
+                      color: "var(--accent-text)",
+                      background: "var(--bg-surface)",
+                      opacity: cats.includes(name) ? 0.5 : 1,
+                    }}
+                  >
+                    {cats.includes(name) ? "✓ " : "+ "}{name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             {cats.map((c) => (
-              <div key={c} className="flex items-center gap-1.5">
+              <div key={c} className="rounded-xl border p-3 space-y-2" style={{ borderColor: "var(--border-sub)", background: "var(--bg-elevated)" }}>
                 <div className="flex-1 min-w-0">
-                  <label
-                    className="block text-xs mb-1 truncate"
-                    style={{ color: "var(--text-sec)" }}
-                  >
-                    {c}
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="0"
-                    value={vals[c] || ""}
-                    onChange={(e) =>
-                      setVals((p) => ({ ...p, [c]: e.target.value }))
-                    }
-                    className="w-full px-3 py-1.5 rounded-lg border text-sm outline-none"
-                    style={{
-                      background: "var(--bg-elevated)",
-                      borderColor: "var(--border)",
-                      color: "var(--text-primary)",
-                    }}
-                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="block text-xs font-semibold truncate" style={{ color: "var(--text-sec)" }}>
+                      {c}
+                    </label>
+                    <span className="text-xs font-bold" style={{ color: "var(--accent-text)" }}>
+                      ₹{fmt((subEntries[c] || []).length > 0
+                        ? (subEntries[c] || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+                        : vals[c] || 0)}
+                    </span>
+                  </div>
+                  {(subEntries[c] || []).length === 0 && (
+                    <input
+                      type="number"
+                      placeholder="Direct amount"
+                      value={vals[c] || ""}
+                      onChange={(e) => setVals((p) => ({ ...p, [c]: e.target.value }))}
+                      className="w-full mt-1 px-3 py-1.5 rounded-lg border text-sm outline-none"
+                      style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    />
+                  )}
                 </div>
-                <button
-                  onClick={() => delCat(c)}
-                  className="text-xs mt-5 px-1.5 py-1.5 rounded border shrink-0"
-                  style={{
-                    borderColor: "var(--danger-border)",
-                    color: "var(--danger-text)",
-                    background: "var(--danger-soft)",
-                  }}
-                >
-                  ×
-                </button>
+                {(subEntries[c] || []).map((item, index) => (
+                  <div key={index} className="grid grid-cols-[minmax(0,1fr)_6rem_auto] gap-2">
+                    <input placeholder="Subname" value={item.name || ""} onChange={(e) => updateSubEntry(c, index, "name", e.target.value)} className="px-2.5 py-1.5 rounded-lg border text-xs outline-none" style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
+                    <input type="number" placeholder="Amount" value={item.amount || ""} onChange={(e) => updateSubEntry(c, index, "amount", e.target.value)} className="px-2.5 py-1.5 rounded-lg border text-xs outline-none" style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
+                    <button type="button" onClick={() => removeSubEntry(c, index)} className="px-2 rounded-lg border text-xs" style={{ borderColor: "var(--danger-border)", color: "var(--danger-text)" }}>×</button>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-2">
+                  <button type="button" onClick={() => addSubEntry(c)} className="text-xs font-semibold" style={{ color: "var(--accent-text)" }}>+ Add subname</button>
+                  <button type="button" onClick={() => delCat(c)} className="text-xs" style={{ color: "var(--danger-text)" }}>Remove category</button>
+                </div>
               </div>
             ))}
           </div>
@@ -839,7 +977,7 @@ function ExpensePopup({ expenses, onClose, onSave }) {
               Cancel
             </button>
             <button
-              onClick={() => onSave(vals, total)}
+              onClick={() => onSave(categoryTotals, subEntries, total)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
               style={{ background: "var(--accent)" }}
             >
@@ -1337,6 +1475,11 @@ function DetailModal({ entry, onClose }) {
                 total: entry.advance,
               },
               {
+                label: "Overtime",
+                entries: entry.overtimeEntries || [],
+                total: entry.overtime,
+              },
+              {
                 label: "Purchase Credit",
                 entries: entry.purchaseCreditEntries || [],
                 total: entry.purchaseCredit,
@@ -1449,18 +1592,23 @@ function DetailModal({ entry, onClose }) {
                     className="rounded-xl p-3"
                     style={{ background: "var(--bg-surface)" }}
                   >
-                    <p
-                      className="text-xs mb-1"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      {key}
-                    </p>
+                    <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{key}</p>
                     <p
                       className="font-semibold"
                       style={{ color: "var(--text-primary)" }}
                     >
                       ₹{fmt(value)}
                     </p>
+                    {(entry.expenseSubEntries?.[key] || []).length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {entry.expenseSubEntries[key].map((item, index) => (
+                          <div key={index} className="flex justify-between gap-2 text-xs" style={{ color: "var(--text-sec)" }}>
+                            <span className="truncate">{item.name}</span>
+                            <span className="shrink-0">₹{fmt(item.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1520,7 +1668,7 @@ function DetailModal({ entry, onClose }) {
 }
 
 /* ─── EntryModal ──────────────────────────────────────────────────────────── */
-function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
+function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose, personNames, tabNames, onTabNames, onPersonNames }) {
   const initForm = (e) => {
     if (e)
       return {
@@ -1566,8 +1714,10 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         cashToOfficeEntries: e.cashToOfficeEntries || [],
         salaryEntries: e.salaryEntries || [],
         advanceEntries: e.advanceEntries || [],
+        overtimeEntries: e.overtimeEntries || [],
         purchaseCreditEntries: e.purchaseCreditEntries || [],
         expenseEntries: normalizeExpenses(e.expenseEntries),
+        expenseSubEntries: e.expenseSubEntries || {},
       };
     return {
       date: todayStr(),
@@ -1583,8 +1733,10 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       cashToOfficeEntries: [],
       salaryEntries: [],
       advanceEntries: [],
+      overtimeEntries: [],
       purchaseCreditEntries: [],
       expenseEntries: {},
+      expenseSubEntries: {},
     };
   };
 
@@ -1597,6 +1749,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const [cashOfficePopup, setCashOfficePopup] = useState(false);
   const [salaryPopup, setSalaryPopup] = useState(false);
   const [advancePopup, setAdvancePopup] = useState(false);
+  const [overtimePopup, setOvertimePopup] = useState(false);
   const [purchaseCreditPopup, setPurchaseCreditPopup] = useState(false);
   const [upiPopup, setUpiPopup] = useState(false);
   const [expensePopup, setExpensePopup] = useState(false);
@@ -1632,12 +1785,13 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
   const openingCash = Number(form.openingCash) || 0;
   const salary = sumPersonEntries(form.salaryEntries);
   const advance = sumPersonEntries(form.advanceEntries);
+  const overtime = sumPersonEntries(form.overtimeEntries);
   // Purchase Credit — liability tracker only, NOT part of Cash Expenses.
   const purchaseCredit = sumPersonEntries(form.purchaseCreditEntries);
   // Cash Expenses = generic category map + Salary + Advance (Salary/Advance
   // moved out of the generic map into their own by-person breakdowns, but
   // still count toward the same Cash Expenses total, right alongside it).
-  const cashExpenses = sumExpenses(form.expenseEntries) + salary + advance;
+  const cashExpenses = sumExpenses(form.expenseEntries) + salary + advance + overtime;
 
   // ④ totalSale = sum of all sale tabs (kitchen + coffee + their sub-tabs)
   const totalSale = kitchenSale + coffeeShop + counterSale;
@@ -1698,11 +1852,14 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       salaryEntries: form.salaryEntries,
       advance,
       advanceEntries: form.advanceEntries,
+      overtime,
+      overtimeEntries: form.overtimeEntries,
       purchaseCredit,
       purchaseCreditEntries: form.purchaseCreditEntries,
       totalSale,
       totalCash,
       expenseEntries: expObj,
+      expenseSubEntries: form.expenseSubEntries,
       cashExpenses,
       cashInHand,
       closingCash: cashInHand,
@@ -2039,7 +2196,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
               <BtnField
                 label="Salary"
                 total={salary}
@@ -2061,6 +2218,13 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                 }
                 onClick={() => setAdvancePopup(true)}
                 hint="Enter advance by person…"
+              />
+              <BtnField
+                label="Overtime"
+                total={overtime}
+                count={form.overtimeEntries.length || null}
+                onClick={() => setOvertimePopup(true)}
+                hint="Enter overtime by person…"
               />
             </div>
             <span className="block text-xs font-semibold mb-1.5">
@@ -2088,7 +2252,8 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
             </button>
             {(sumExpenses(form.expenseEntries) > 0 ||
               salary > 0 ||
-              advance > 0) && (
+              advance > 0 ||
+              overtime > 0) && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {salary > 0 && (
                   <span
@@ -2112,6 +2277,11 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
                     }}
                   >
                     Advance: ₹{fmt(advance)}
+                  </span>
+                )}
+                {overtime > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--accent-soft)", color: "var(--accent-text)", border: "1px solid var(--accent-border)" }}>
+                    Overtime: ₹{fmt(overtime)}
                   </span>
                 )}
                 {Object.entries(form.expenseEntries)
@@ -2205,8 +2375,13 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         <SaleSubTabPopup
           title="Kitchen Sale"
           subTabs={form.kitchenSubTabs}
+          personNames={personNames}
+          tabNames={tabNames}
+          onPersonNames={(rows) => onPersonNames("kitchenSale", rows)}
+          fieldKey="kitchenSale"
           onClose={() => setKitchenPopup(false)}
           onSave={(tabs) => {
+            onTabNames("kitchenSale", tabs);
             set("kitchenSubTabs", tabs);
             setKitchenPopup(false);
           }}
@@ -2216,8 +2391,13 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         <SaleSubTabPopup
           title="Coffee Shop"
           subTabs={form.coffeeSubTabs}
+          personNames={personNames}
+          tabNames={tabNames}
+          onPersonNames={(rows) => onPersonNames("coffeeShop", rows)}
+          fieldKey="coffeeShop"
           onClose={() => setCoffeePopup(false)}
           onSave={(tabs) => {
+            onTabNames("coffeeShop", tabs);
             set("coffeeSubTabs", tabs);
             setCoffeePopup(false);
           }}
@@ -2227,17 +2407,23 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         <SaleSubTabPopup
           title="Counter Sale"
           subTabs={form.counterSubTabs}
+          personNames={personNames}
+          tabNames={tabNames}
+          onPersonNames={(rows) => onPersonNames("counterSale", rows)}
+          fieldKey="counterSale"
           onClose={() => setCounterPopup(false)}
           onSave={(tabs) => {
+            onTabNames("counterSale", tabs);
             set("counterSubTabs", tabs);
             setCounterPopup(false);
           }}
         />
       )}
       {upiPopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="UPI Received"
           entries={form.upiReceivedEntries}
+          commonNames={personNames.upiReceived}
           onClose={() => setUpiPopup(false)}
           onSave={(rows) => {
             set("upiReceivedEntries", rows);
@@ -2247,9 +2433,10 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         />
       )}
       {officialPopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="Official Credit"
           entries={form.officialCrEntries}
+          commonNames={personNames.officialCr}
           onClose={() => setOfficialPopup(false)}
           onSave={(rows) => {
             set("officialCrEntries", rows);
@@ -2258,9 +2445,10 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         />
       )}
       {personalPopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="Personal Credit"
           entries={form.personalCrEntries}
+          commonNames={personNames.personalCr}
           showCredited
           onClose={() => setPersonalPopup(false)}
           onSave={(rows) => {
@@ -2270,7 +2458,7 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         />
       )}
       {cashOfficePopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="Cash to Office"
           entries={form.cashToOfficeEntries}
           partners={partnerOptions}
@@ -2282,9 +2470,10 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         />
       )}
       {salaryPopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="Salary"
           entries={form.salaryEntries}
+          commonNames={personNames.salary}
           onClose={() => setSalaryPopup(false)}
           onSave={(rows) => {
             set("salaryEntries", rows);
@@ -2293,9 +2482,10 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
         />
       )}
       {advancePopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="Advance"
           entries={form.advanceEntries}
+          commonNames={personNames.advance}
           onClose={() => setAdvancePopup(false)}
           onSave={(rows) => {
             set("advanceEntries", rows);
@@ -2303,10 +2493,23 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
           }}
         />
       )}
+      {overtimePopup && (
+        <PersonEntryFields
+          title="Overtime"
+          entries={form.overtimeEntries}
+          commonNames={personNames.overtime}
+          onClose={() => setOvertimePopup(false)}
+          onSave={(rows) => {
+            set("overtimeEntries", rows);
+            setOvertimePopup(false);
+          }}
+        />
+      )}
       {purchaseCreditPopup && (
-        <PersonEntryPopup
+        <PersonEntryFields
           title="Purchase Credit"
           entries={form.purchaseCreditEntries}
+          commonNames={personNames.purchaseCredit}
           onClose={() => setPurchaseCreditPopup(false)}
           onSave={(rows) => {
             set("purchaseCreditEntries", rows);
@@ -2317,9 +2520,12 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose }) {
       {expensePopup && (
         <ExpensePopup
           expenses={form.expenseEntries}
+          commonNames={personNames.expenseSubnames}
           onClose={() => setExpensePopup(false)}
-          onSave={(vals) => {
+            expenseSubEntries={form.expenseSubEntries}
+            onSave={(vals, subEntries) => {
             set("expenseEntries", vals);
+              set("expenseSubEntries", subEntries);
             setExpensePopup(false);
           }}
         />
@@ -2374,6 +2580,9 @@ export default function Dashboard() {
   const [breakdownModal, setBreakdownModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [personNames, setPersonNames] = useState(loadPersonNames);
+  const [tabNames, setTabNames] = useState(emptySaleTabNames);
+  const [showNameSettings, setShowNameSettings] = useState(false);
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("user"));
@@ -2402,6 +2611,17 @@ export default function Dashboard() {
     },
     [user?.role, user?.shop],
   );
+
+  useEffect(() => {
+    API.get("/entry-fields/names")
+      .then(({ data }) => {
+        if (data.success) {
+          setPersonNames(data.data || loadPersonNames());
+          setTabNames(data.tabNames || emptySaleTabNames());
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     TAB_MONTHS.forEach((mk) => fetchMonth(mk));
@@ -2473,6 +2693,7 @@ export default function Dashboard() {
     (a, e) => ({
       kitchenSale: a.kitchenSale + (e.kitchenSale || 0),
       coffeeShop: a.coffeeShop + (e.coffeeShop ?? e.coffeeShopSale ?? 0),
+      counterSale: a.counterSale + (e.counterSale || 0),
       totalSale: a.totalSale + (e.totalSale || 0),
       officialCr: a.officialCr + (e.officialCr || 0),
       personalCr: a.personalCr + (e.personalCr || 0),
@@ -2484,6 +2705,7 @@ export default function Dashboard() {
     {
       kitchenSale: 0,
       coffeeShop: 0,
+      counterSale: 0,
       totalSale: 0,
       officialCr: 0,
       personalCr: 0,
@@ -2493,8 +2715,7 @@ export default function Dashboard() {
       cashExpenses: 0,
     },
   );
-  const monthCashInHand =
-    totals.totalCash - totals.cashExpenses - totals.cashToOffice;
+  const monthCashInHand = lastCashInHand ?? 0;
 
   const handleSort = (k) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -2553,6 +2774,65 @@ export default function Dashboard() {
     }
     setShowModal(false);
     setEditEntry(null);
+  };
+
+  const handleSavePersonNames = async (names, nextTabNames = tabNames) => {
+    try {
+      const { data } = await API.put("/entry-fields/names", { names, tabNames: nextTabNames });
+      if (!data.success) throw new Error(data.message || "Unable to save names");
+      setPersonNames(data.data || names);
+      setTabNames(data.tabNames || nextTabNames);
+      setShowNameSettings(false);
+    } catch (err) {
+      setNotice({
+        title: "Names not saved",
+        message: err?.response?.data?.message || err.message,
+      });
+    }
+  };
+
+  const rememberTabNames = async (fieldKey, tabs) => {
+    const names = tabs
+      .map((tab) => String(tab.name || "").trim())
+      .filter(Boolean);
+    if (!names.length) return;
+    const nextTabNames = {
+      ...tabNames,
+      [fieldKey]: Array.from(
+        new Set([...(tabNames[fieldKey] || []), ...names]),
+      ),
+    };
+    setTabNames(nextTabNames);
+    try {
+      await API.put("/entry-fields/names", {
+        names: personNames,
+        tabNames: nextTabNames,
+      });
+    } catch {
+      // The sale entry itself remains usable if remembering a tab name fails.
+    }
+  };
+
+  const rememberPersonNames = async (fieldKey, rows) => {
+    const names = rows
+      .map((row) => String(row.name || "").trim())
+      .filter(Boolean);
+    if (!names.length) return;
+    const nextPersonNames = {
+      ...personNames,
+      [fieldKey]: Array.from(
+        new Set([...(personNames[fieldKey] || []), ...names]),
+      ),
+    };
+    setPersonNames(nextPersonNames);
+    try {
+      await API.put("/entry-fields/names", {
+        names: nextPersonNames,
+        tabNames,
+      });
+    } catch {
+      // The sale entry remains usable if remembering a person fails.
+    }
   };
 
   const handleDelete = async (entry) => {
@@ -2775,6 +3055,18 @@ export default function Dashboard() {
                 Monthly Summary
               </h2>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNameSettings(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs border font-medium"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--text-sec)",
+                    background: "var(--bg-elevated)",
+                  }}
+                >
+                  ⚙ Names
+                </button>
                 <select
                   value={overviewYear}
                   onChange={(e) => setOverviewYear(Number(e.target.value))}
@@ -2862,6 +3154,18 @@ export default function Dashboard() {
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNameSettings(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs border font-medium"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--text-sec)",
+                    background: "var(--bg-elevated)",
+                  }}
+                >
+                  ⚙ Names
+                </button>
                 <button
                   onClick={() => {
                     const pm = prevMonth(viewMonth);
@@ -2978,7 +3282,7 @@ export default function Dashboard() {
                 <StatCard
                   label="Cash In Hand"
                   value={monthCashInHand}
-                  sub="Cash − Exp − Office"
+                  sub="Last day's closing cash"
                   accent={monthCashInHand >= 0}
                   danger={monthCashInHand < 0}
                 />
@@ -3177,7 +3481,15 @@ export default function Dashboard() {
                                 items={flattenSubTabs(row.coffeeSubTabs || [])}
                               />
                             </td>
-                            {/* ④ Total Sale */}
+                            {/* ④ Counter Sale */}
+                            <td className="px-3 py-3 text-right tabular-nums">
+                              <ClickCell
+                                title="Counter Sale Breakdown"
+                                value={row.counterSale}
+                                items={flattenSubTabs(row.counterSubTabs || [])}
+                              />
+                            </td>
+                            {/* ⑤ Total Sale */}
                             <td
                               className="px-3 py-3 text-right tabular-nums font-semibold"
                               style={{ color: "var(--accent-text)" }}
@@ -3233,7 +3545,9 @@ export default function Dashboard() {
                               (row.salaryEntries || []).length > 0 ||
                               (row.advanceEntries || []).length > 0 ||
                               row.salary > 0 ||
-                              row.advance > 0 ? (
+                              row.advance > 0 ||
+                              (row.overtimeEntries || []).length > 0 ||
+                              row.overtime > 0 ? (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -3267,14 +3581,26 @@ export default function Dashboard() {
                                                 },
                                               ]
                                             : []),
+                                        ...((row.overtimeEntries || []).length > 0
+                                          ? row.overtimeEntries.map((e) => ({
+                                              name: `[Overtime] ${e.name}`,
+                                              amount: e.amount,
+                                            }))
+                                          : row.overtime > 0
+                                            ? [{ name: "Overtime", amount: row.overtime }]
+                                            : []),
                                         ...Object.entries(
                                           normalizeExpenses(row.expenseEntries),
                                         )
                                           .filter(([, v]) => Number(v) > 0)
-                                          .map(([k, v]) => ({
-                                            name: k,
-                                            amount: v,
-                                          })),
+                                          .flatMap(([k, v]) =>
+                                            (row.expenseSubEntries?.[k] || []).length > 0
+                                              ? row.expenseSubEntries[k].map((item) => ({
+                                                  name: `[${k}] ${item.name}`,
+                                                  amount: item.amount,
+                                                }))
+                                              : [{ name: k, amount: v }],
+                                          ),
                                       ],
                                     })
                                   }
@@ -3387,6 +3713,12 @@ export default function Dashboard() {
                         className="px-3 py-3 text-right tabular-nums"
                         style={{ color: "var(--accent-text)" }}
                       >
+                        {fmt(totals.counterSale)}
+                      </td>
+                      <td
+                        className="px-3 py-3 text-right tabular-nums"
+                        style={{ color: "var(--accent-text)" }}
+                      >
                         {fmt(totals.totalSale)}
                       </td>
                       <td
@@ -3484,6 +3816,10 @@ export default function Dashboard() {
           entry={editEntry}
           lastCashInHand={lastCashInHand}
           existingDates={existingDates}
+          personNames={personNames}
+          tabNames={tabNames}
+          onTabNames={rememberTabNames}
+          onPersonNames={rememberPersonNames}
           onSave={handleSave}
           onClose={() => {
             setShowModal(false);
@@ -3513,6 +3849,14 @@ export default function Dashboard() {
           title={notice.title}
           message={notice.message}
           onClose={() => setNotice(null)}
+        />
+      )}
+      {showNameSettings && (
+        <PersonNamesSettings
+          names={personNames}
+          tabNames={tabNames}
+          onSave={handleSavePersonNames}
+          onClose={() => setShowNameSettings(false)}
         />
       )}
     </div>

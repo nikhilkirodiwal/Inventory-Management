@@ -19,7 +19,7 @@ const tabTotal = (t) =>
  * Formulas:
  *   ④ totalSale  = kitchenSale + coffeeShop  (each already the sum of its sub-tabs)
  *   ⑧ totalCash  = openingCash + totalSale − officialCr − personalCr − upiReceived
- *   ⑩ cashExpenses = sum(expenseEntries) + salary + advance
+ *   ⑩ cashExpenses = sum(expenseEntries) + salary + advance + overtime
  *   ⑪ cashInHand = totalCash − cashExpenses − cashToOffice  (→ next day's openingCash)
  *   Purchase Credit is tracked separately and does NOT affect any of the
  *   above — it's a liability record (goods bought on credit), not cash.
@@ -107,6 +107,14 @@ const recompute = (body) => {
     ? sumPersonEntries(advanceEntries)
     : Number(body.advance) || 0;
 
+  /* Overtime — named cash-expense breakdown, beside Salary and Advance. */
+  const overtimeEntries = Array.isArray(body.overtimeEntries)
+    ? body.overtimeEntries
+    : [];
+  const overtime = overtimeEntries.length
+    ? sumPersonEntries(overtimeEntries)
+    : Number(body.overtime) || 0;
+
   /* Purchase Credit — liability tracker only, does not touch cash formulas */
   const purchaseCreditEntries = Array.isArray(body.purchaseCreditEntries)
     ? body.purchaseCreditEntries
@@ -126,7 +134,27 @@ const recompute = (body) => {
     const n = Number(v);
     if (n > 0) expenseEntries[k] = n;
   });
-  const cashExpenses = sumMap(expenseEntries) + salary + advance;
+  const rawSubEntries =
+    body.expenseSubEntries && typeof body.expenseSubEntries === "object"
+      ? body.expenseSubEntries
+      : {};
+  const expenseSubEntries = {};
+  Object.entries(rawSubEntries).forEach(([category, items]) => {
+    const cleanItems = Array.isArray(items)
+      ? items
+          .map((item) => ({
+            name: String(item?.name || "").trim(),
+            amount: Number(item?.amount) || 0,
+            note: String(item?.note || ""),
+          }))
+          .filter((item) => item.name || item.amount > 0)
+      : [];
+    if (cleanItems.length > 0) {
+      expenseSubEntries[category] = cleanItems;
+      expenseEntries[category] = sumPersonEntries(cleanItems);
+    }
+  });
+  const cashExpenses = sumMap(expenseEntries) + salary + advance + overtime;
 
   /* ① Opening cash */
   const openingCash = Number(body.openingCash) || 0;
@@ -174,10 +202,14 @@ const recompute = (body) => {
     advance,
     advanceEntries,
 
+    overtime,
+    overtimeEntries,
+
     purchaseCredit,
     purchaseCreditEntries,
 
     expenseEntries,
+    expenseSubEntries,
     cashExpenses,
 
     cashInHand,
@@ -190,6 +222,8 @@ const serialize = (doc) => {
   const obj = doc.toObject ? doc.toObject({ getters: false }) : { ...doc };
   if (obj.expenseEntries instanceof Map)
     obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+  if (obj.expenseSubEntries instanceof Map)
+    obj.expenseSubEntries = Object.fromEntries(obj.expenseSubEntries);
   return obj;
 };
 

@@ -10,6 +10,7 @@ import shopRoute from "./routes/shopRoute.js";
 import partnerRoute from "./routes/partnerRoute.js";
 import ledgerRoute from "./routes/ledgerRoute.js";
 import pnlRoute from "./routes/pnlRoute.js";
+import entryFieldRoute from "./routes/entryFieldRoute.js";
 import User from "./models/user.js";
 import Partner from "./models/partner.js";
 import bcrypt from "bcryptjs";
@@ -85,6 +86,7 @@ const startServer = async () => {
   app.use("/api/partners", partnerRoute);
   app.use("/api/ledger", ledgerRoute);
   app.use("/api/pnl", pnlRoute);
+  app.use("/api/entry-fields", entryFieldRoute);
 
   app.get("/", (req, res) => {
     res.send("API Running");

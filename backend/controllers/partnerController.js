@@ -21,7 +21,7 @@ const cashOfficeTransactions = async (match = {}) => {
         partner: "$cashToOfficeEntries.partner",
         shop: 1,
         date: 1,
-        type: { $literal: "transfer" },
+        type: { $literal: "receive" },
         amount: "$cashToOfficeEntries.amount",
         note: "$cashToOfficeEntries.note",
         source: { $literal: "cashToOffice" },
@@ -169,17 +169,17 @@ export const getPartners = async (req, res) => {
       const cashAll = cashAllMap[key];
       const cashToOfficeAllTime = cashAll?.total || 0;
       const cashToOfficeMonthly = cashMonthMap[key] || 0;
-      const transferred = at.transferred + cashToOfficeAllTime;
-      const monthlyTransferred = mo.transferred + cashToOfficeMonthly;
+      const received = at.received + cashToOfficeAllTime;
+      const monthlyReceived = mo.received + cashToOfficeMonthly;
       return {
         ...p,
-        allTime: { ...at, transferred, netBalance: at.received - transferred },
-        monthly: { ...mo, transferred: monthlyTransferred, netBalance: mo.received - monthlyTransferred, month },
-        totalTransferred: transferred,
-        totalReceived: at.received,
+        allTime: { ...at, received, netBalance: received - at.transferred },
+        monthly: { ...mo, received: monthlyReceived, netBalance: monthlyReceived - mo.transferred, month },
+        totalTransferred: at.transferred,
+        totalReceived: received,
         cashToOfficeAllTime,
         cashToOfficeMonthly,
-        netBalance: at.received - transferred,
+        netBalance: received - at.transferred,
         transactionCount: (last?.count || 0) + (cashAll?.count || 0),
         lastTransactionDate:
           !last?.lastDate || cashAll?.lastDate > last.lastDate
@@ -390,7 +390,7 @@ export const getPartnerShops = async (req, res) => {
         count: 0,
         lastDate: null,
       };
-      statMap[key].transferred += Number(row.amount) || 0;
+      statMap[key].received += Number(row.amount) || 0;
       statMap[key].count += 1;
       if (!statMap[key].lastDate || row.date > statMap[key].lastDate)
         statMap[key].lastDate = row.date;

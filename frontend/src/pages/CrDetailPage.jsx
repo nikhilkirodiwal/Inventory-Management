@@ -14,7 +14,9 @@ import {
   creditStatus,
   creditLeft,
   creditPct,
+  todayStr,
 } from "../utils/daybook";
+import { flattenExpenseSubnames, loadPersonNames } from "../utils/personNames";
 
 /**
  * Full-page drill-down for the shop dashboard's quick-stat tiles. Three
@@ -50,10 +52,29 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
   const [editNote, setEditNote] = useState("");
   const [confirmState, setConfirmState] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
+  const [commonNames, setCommonNames] = useState(loadPersonNames);
+  const [addForm, setAddForm] = useState({
+    fieldKey: fields[0].key,
+    date: drillMonth ? `${drillMonth}-01` : todayStr(),
+    name: "",
+    amount: "",
+    creditedAmount: "0",
+    note: "",
+  });
 
   const yearOptions = yearsFrom(2024, currentMonthKey);
   const monthsInYear = monthsForYear(year, currentMonthKey);
   const primaryField = fields[0];
+
+  useEffect(() => {
+    API.get("/entry-fields/names")
+      .then(({ data }) => {
+        if (data.success) setCommonNames(data.data || loadPersonNames());
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     monthsInYear.forEach((mk) => {
@@ -193,6 +214,94 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
     }
   };
 
+  const openAdd = () => {
+    setAddForm((p) => ({
+      ...p,
+      fieldKey: p.fieldKey || fields[0].key,
+      date: drillMonth ? `${drillMonth}-01` : todayStr(),
+    }));
+    setAddOpen(true);
+  };
+
+  const saveAddedEntry = async (event) => {
+    event.preventDefault();
+    const field = fields.find((f) => f.key === addForm.fieldKey) || fields[0];
+    const amount = Number(addForm.amount);
+    const name = addForm.name.trim();
+    if (!addForm.date || !name || !Number.isFinite(amount) || amount <= 0) {
+      alert("Enter a date, name, and a valid amount.");
+      return;
+    }
+
+    const monthKey = addForm.date.slice(0, 7);
+    setAddSaving(true);
+    try {
+      let monthRows = allData[monthKey];
+      if (!monthRows) {
+        const params = { month: monthKey };
+        if (user?.role === "admin" && user?.shop) params.shop = user.shop;
+        const { data } = await API.get("/daybook", { params });
+        monthRows = data.success ? data.data || [] : [];
+      }
+
+      const existing = monthRows.find(
+        (entry) => new Date(entry.date).toISOString().slice(0, 10) === addForm.date,
+      );
+      const newItem = {
+        name,
+        amount,
+        note: addForm.note.trim(),
+        ...(field.showCredited
+          ? {
+              creditedAmount: Math.max(
+                0,
+                Math.min(Number(addForm.creditedAmount) || 0, amount),
+              ),
+            }
+          : {}),
+      };
+
+      let response;
+      if (existing) {
+        const { _id, shop, createdAt, updatedAt, __v, ...existingBody } = existing;
+        const payload = {
+          ...existingBody,
+          date: addForm.date,
+          [field.entriesKey]: [...(existing[field.entriesKey] || []), newItem],
+        };
+        response = await API.put(`/daybook/${existing._id}`, payload);
+      } else {
+        response = await API.post("/daybook", {
+          date: addForm.date,
+          [field.key]: amount,
+          [field.entriesKey]: [newItem],
+        });
+      }
+
+      if (response.data.success) {
+        const saved = response.data.data;
+        setAllData((p) => ({
+          ...p,
+          [monthKey]: existing
+            ? (p[monthKey] || monthRows).map((entry) =>
+                entry._id === saved._id ? saved : entry,
+              )
+            : [...(p[monthKey] || monthRows), saved].sort(
+                (a, b) => new Date(a.date) - new Date(b.date),
+              ),
+        }));
+        setYear(Number(monthKey.slice(0, 4)));
+        setDrillMonth(monthKey);
+        setAddOpen(false);
+        setAddForm((p) => ({ ...p, name: "", amount: "", note: "" }));
+      }
+    } catch (err) {
+      alert("Couldn't add entry: " + (err?.response?.data?.message || err.message));
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
   return (
     <div
       className="min-h-screen"
@@ -259,6 +368,13 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
               ))}
             </select>
           )}
+          <button
+            onClick={openAdd}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+            style={{ background: "var(--accent)" }}
+          >
+            + Add
+          </button>
           <button
             onClick={() => navigate("/dashboard")}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold border hidden sm:block"
@@ -833,6 +949,19 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
         )}
       </main>
 
+      {addOpen && (
+        <AddEntryDialog
+          title={title}
+          fields={fields}
+          form={addForm}
+          commonNames={commonNames[addForm.fieldKey] || []}
+          saving={addSaving}
+          onChange={(key, value) => setAddForm((p) => ({ ...p, [key]: value }))}
+          onSave={saveAddedEntry}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+
       {confirmState && (
         <ConfirmDialog
           title="Confirm credit update"
@@ -860,6 +989,144 @@ function EmptyState({ title, monthLabel }) {
       <p className="text-sm" style={{ color: "var(--text-muted)" }}>
         No {title.toLowerCase()} entries for {monthLabel}.
       </p>
+    </div>
+  );
+}
+
+function AddEntryDialog({ title, fields, form, commonNames = [], saving, onChange, onSave, onClose }) {
+  const selectedField = fields.find((field) => field.key === form.fieldKey) || fields[0];
+  const suggestions = Array.isArray(commonNames)
+    ? commonNames
+    : flattenExpenseSubnames(commonNames);
+  const listId = `add-entry-names-${title.replace(/\W+/g, "-").toLowerCase()}`;
+  return (
+    <div
+      className="fixed inset-0 z-60 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,.6)" }}
+      onClick={(event) => event.target === event.currentTarget && !saving && onClose()}
+    >
+      <form
+        onSubmit={onSave}
+        className="w-full max-w-md rounded-2xl border p-5 space-y-3"
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "var(--border)",
+          boxShadow: "var(--shadow)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-sm" style={{ color: "var(--text-primary)" }}>
+              Add to {title}
+            </h3>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              This entry will also appear in the Day Book.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} style={{ color: "var(--text-muted)" }}>
+            ✕
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {fields.length > 1 && (
+            <label className="col-span-2 text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+              Type
+              <select
+                value={form.fieldKey}
+                onChange={(event) => onChange("fieldKey", event.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                {fields.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+            Date
+            <input
+              type="date"
+              required
+              value={form.date}
+              onChange={(event) => onChange("date", event.target.value)}
+              className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+              style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+          </label>
+          <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+            Amount
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              value={form.amount}
+              onChange={(event) => onChange("amount", event.target.value)}
+              className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+              style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+          </label>
+        </div>
+        <label className="block text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+          {selectedField.key === "purchaseCredit" ? "What was purchased" : "Name"}
+          <input
+            list={listId}
+            required
+            value={form.name}
+            onChange={(event) => onChange("name", event.target.value)}
+            className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+            style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+          />
+        </label>
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 -mt-1">
+            {suggestions.map((name) => (
+              <button
+                type="button"
+                key={name}
+                onClick={() => onChange("name", name)}
+                className="px-2 py-1 rounded-lg border text-[10px]"
+                style={{ borderColor: "var(--accent-border)", color: "var(--accent-text)", background: "var(--accent-soft)" }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+        <datalist id={listId}>
+          {suggestions.map((name) => <option key={name} value={name} />)}
+        </datalist>
+        {selectedField.showCredited && (
+          <label className="block text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+            Credited so far
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.creditedAmount}
+              onChange={(event) => onChange("creditedAmount", event.target.value)}
+              className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+              style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+          </label>
+        )}
+        <label className="block text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+          Note <span className="font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span>
+          <input
+            value={form.note}
+            onChange={(event) => onChange("note", event.target.value)}
+            className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+            style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+          />
+        </label>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} disabled={saving} className="px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: "var(--border)", color: "var(--text-sec)" }}>
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50" style={{ background: "var(--accent)" }}>
+            {saving ? "Adding…" : "Add entry"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

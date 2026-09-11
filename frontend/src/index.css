@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* Keep numeric fields clean; users can still type or use keyboard arrows. */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════
     DARK THEME  (MYRA BRAND)
   ═══════════════════════════════════════════════════════════════ */
