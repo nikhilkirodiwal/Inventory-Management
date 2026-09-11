@@ -1668,12 +1668,11 @@ function DetailModal({ entry, onClose }) {
 }
 
 /* ─── EntryModal ──────────────────────────────────────────────────────────── */
-function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose, personNames, tabNames, onTabNames, onPersonNames }) {
+function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose, personNames, tabNames, onTabNames, onPersonNames }) {
   const initForm = (e) => {
     if (e)
       return {
         date: e.date?.split("T")[0] ?? e.date,
-        openingCash: e.openingCash ?? 0,
         // Fall back gracefully for legacy entries that only have a flat kitchenSale /
         // kitchenSaleEntries (by-person), so editing an old record never drops data.
         kitchenSubTabs: e.kitchenSubTabs || [
@@ -1721,7 +1720,6 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose, per
       };
     return {
       date: todayStr(),
-      openingCash: lastCashInHand ?? 0,
       kitchenSubTabs: [{ name: "Kitchen Sale", entries: [], directAmount: "" }],
       coffeeSubTabs: [{ name: "Coffee Shop", entries: [], directAmount: "" }],
       counterSubTabs: [{ name: "Counter Sale", entries: [], directAmount: "" }],
@@ -1782,7 +1780,12 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose, per
     form.cashToOfficeEntries.length > 0
       ? sumPersonEntries(form.cashToOfficeEntries)
       : Number(form.cashToOffice) || 0;
-  const openingCash = Number(form.openingCash) || 0;
+  const previousClosingCash = openingCashForDate(
+    daybookEntries,
+    form.date,
+    entry?._id,
+  );
+  const openingCash = Number(previousClosingCash ?? entry?.openingCash ?? 0);
   const salary = sumPersonEntries(form.salaryEntries);
   const advance = sumPersonEntries(form.advanceEntries);
   const overtime = sumPersonEntries(form.overtimeEntries);
@@ -1982,17 +1985,22 @@ function EntryModal({ entry, lastCashInHand, existingDates, onSave, onClose, per
               </label>
               <input
                 type="number"
-                value={form.openingCash}
-                onChange={(e) => set("openingCash", e.target.value)}
-                className={inp}
-                style={is}
+                value={openingCash}
+                readOnly
+                aria-readonly="true"
+                className={`${inp} cursor-not-allowed`}
+                style={{
+                  ...is,
+                  background: "var(--bg-surface)",
+                  color: "var(--text-sec)",
+                }}
               />
-              {lastCashInHand !== null && !entry && (
+              {previousClosingCash !== null && (
                 <p
                   className="text-xs mt-1"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  Auto: last Cash-in-Hand ₹{fmt(lastCashInHand)}
+                  Auto: previous closing cash ₹{fmt(previousClosingCash)}
                 </p>
               )}
             </div>
@@ -2551,6 +2559,29 @@ function flattenSubTabsToEntries(tabs = []) {
   return tabs.flatMap((t) => (t.entries?.length > 0 ? t.entries : []));
 }
 
+function daybookDateKey(entry) {
+  return (entry?.date || "").split("T")[0];
+}
+
+function daybookClosingCash(entry) {
+  return (
+    entry?.cashInHand ??
+    entry?.closingCash ??
+    ((entry?.totalCash || 0) -
+      (entry?.cashExpenses || 0) -
+      (entry?.cashToOffice || 0))
+  );
+}
+
+function openingCashForDate(entries, date, excludeId) {
+  if (!date) return null;
+  const previousEntries = entries
+    .filter((e) => e?._id !== excludeId && daybookDateKey(e) < date)
+    .sort((a, b) => daybookDateKey(b).localeCompare(daybookDateKey(a)));
+
+  return previousEntries.length ? daybookClosingCash(previousEntries[0]) : null;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    MAIN DASHBOARD
 ══════════════════════════════════════════════════════════════════════════ */
@@ -2651,6 +2682,7 @@ export default function Dashboard() {
   }, [user?.role, user?.shop]);
 
   const entries = allData[viewMonth] || [];
+  const allLoadedEntries = Object.values(allData).flat();
   const overviewMks = monthsForYear(overviewYear, currentMonthKey);
   const existingDates = entries.map((e) => (e.date || "").split("T")[0]);
 
@@ -3065,7 +3097,7 @@ export default function Dashboard() {
                     background: "var(--bg-elevated)",
                   }}
                 >
-                  ⚙ Names
+                  ⚙ Settings
                 </button>
                 <select
                   value={overviewYear}
@@ -3164,7 +3196,7 @@ export default function Dashboard() {
                     background: "var(--bg-elevated)",
                   }}
                 >
-                  ⚙ Names
+                  ⚙ Settings 
                 </button>
                 <button
                   onClick={() => {
@@ -3814,7 +3846,7 @@ export default function Dashboard() {
       {showModal && (
         <EntryModal
           entry={editEntry}
-          lastCashInHand={lastCashInHand}
+          daybookEntries={allLoadedEntries}
           existingDates={existingDates}
           personNames={personNames}
           tabNames={tabNames}
