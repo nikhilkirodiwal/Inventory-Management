@@ -14,11 +14,27 @@ export default function PersonEntryFields({
   partners = [],
   commonNames = [],
   onRememberNames,
+  showSalaryRole = false,
+  showPurchaseCreditMode = false,
 }) {
-  const blankRow = () =>
-    showCredited
-      ? { name: "", amount: "", creditedAmount: 0, note: "" }
-      : { name: "", amount: "", note: "" };
+  const blankRow = () => ({
+    name: "",
+    amount: "",
+    note: "",
+    ...(showCredited ? { creditedAmount: 0 } : {}),
+    ...(showSalaryRole ? { role: "on-role" } : {}),
+    ...(showPurchaseCreditMode
+      ? { entryMode: "quantity", quantity: "", rate: "", billNo: "" }
+      : {}),
+  });
+  const normalizePurchaseAmount = (row) => {
+    if (!showPurchaseCreditMode) return row;
+    if (row.entryMode !== "quantity") return row;
+    const quantity = Number(row.quantity);
+    const rate = Number(row.rate);
+    if (!Number.isFinite(quantity) || !Number.isFinite(rate)) return row;
+    return { ...row, amount: quantity * rate };
+  };
   const [rows, setRows] = useState(
     entries.length > 0
       ? entries.map((row) => ({
@@ -27,6 +43,15 @@ export default function PersonEntryFields({
           ...(showCredited
             ? { creditedAmount: Number(row.creditedAmount) || 0 }
             : {}),
+          ...(showSalaryRole ? { role: row.role || "on-role" } : {}),
+          ...(showPurchaseCreditMode
+            ? {
+                entryMode: row.entryMode || (row.billNo ? "bill" : "quantity"),
+                quantity: row.quantity ?? "",
+                rate: row.rate ?? "",
+                billNo: row.billNo || "",
+              }
+            : {}),
         }))
       : [blankRow()],
   );
@@ -34,7 +59,9 @@ export default function PersonEntryFields({
   const updateRow = (index, key, value) =>
     setRows((previous) =>
       previous.map((row, rowIndex) =>
-        rowIndex === index ? { ...row, [key]: value } : row,
+        rowIndex === index
+          ? normalizePurchaseAmount({ ...row, [key]: value })
+          : row,
       ),
     );
   const selectPartner = (index, partnerId) => {
@@ -104,22 +131,100 @@ export default function PersonEntryFields({
                       ))}
                     </select>
                   )}
-                  <label className="min-w-0 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
-                    Name
-                    <input
-                      list={listId}
-                      value={row.name}
-                      onChange={(event) => updateRow(index, "name", event.target.value)}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
-                      style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-                    />
-                  </label>
+                  {showSalaryRole && (
+                    <label className="col-span-3 sm:w-32 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Role
+                      <select
+                        value={row.role || "on-role"}
+                        onChange={(event) => updateRow(index, "role", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      >
+                        <option value="on-role">On-role</option>
+                        <option value="off-role">Off-role</option>
+                      </select>
+                    </label>
+                  )}
+                  {showPurchaseCreditMode && (
+                    <label className="col-span-3 sm:w-32 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Entry
+                      <select
+                        value={row.entryMode || "quantity"}
+                        onChange={(event) => updateRow(index, "entryMode", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      >
+                        <option value="quantity">Quantity</option>
+                        <option value="bill">Bill No.</option>
+                      </select>
+                    </label>
+                  )}
+                  {showPurchaseCreditMode && (
+                    <label className="col-span-3 min-w-0 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Credit Name
+                      <input
+                        list={listId}
+                        value={row.name}
+                        onChange={(event) => updateRow(index, "name", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      />
+                    </label>
+                  )}
+                  {!showPurchaseCreditMode && (
+                    <label className="min-w-0 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Name
+                      <input
+                        list={listId}
+                        value={row.name}
+                        onChange={(event) => updateRow(index, "name", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      />
+                    </label>
+                  )}
+                  {showPurchaseCreditMode && row.entryMode !== "bill" && (
+                    <label className="min-w-0 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Quantity
+                      <input
+                        type="number"
+                        value={row.quantity}
+                        onChange={(event) => updateRow(index, "quantity", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      />
+                    </label>
+                  )}
+                  {showPurchaseCreditMode && row.entryMode === "bill" && (
+                    <label className="min-w-0 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Bill No.
+                      <input
+                        value={row.billNo}
+                        onChange={(event) => updateRow(index, "billNo", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      />
+                    </label>
+                  )}
+                  {showPurchaseCreditMode && (
+                    <label className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                      Rate
+                      <input
+                        type="number"
+                        value={row.rate}
+                        onChange={(event) => updateRow(index, "rate", event.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      />
+                    </label>
+                  )}
                   <label className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
                     Amount
                     <input
                       type="number"
                       value={row.amount}
                       onChange={(event) => updateRow(index, "amount", event.target.value)}
+                      readOnly={showPurchaseCreditMode && row.entryMode === "quantity"}
                       className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
                       style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
                     />
@@ -190,7 +295,18 @@ export default function PersonEntryFields({
               <button
                 type="button"
                 onClick={() => {
-                  const savedRows = rows.filter((row) => row.name || row.amount);
+                  const savedRows = rows
+                    .map((row) => ({
+                      ...row,
+                      name:
+                        row.name ||
+                        (row.entryMode === "bill" && row.billNo
+                          ? `Bill ${row.billNo}`
+                          : row.quantity
+                            ? `Qty ${row.quantity}`
+                            : ""),
+                    }))
+                    .filter((row) => row.name || row.amount);
                   onRememberNames?.(savedRows);
                   onSave(savedRows);
                 }}

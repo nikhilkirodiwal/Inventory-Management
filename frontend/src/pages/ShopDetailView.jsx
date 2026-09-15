@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
 import { toast } from "react-toastify";
@@ -48,6 +48,20 @@ const normalizeExpenses = (raw) => {
 };
 const sumPersonEntries = (arr = []) =>
   arr.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+/* Flattens a possibly-nested item tree (subItems/entries/items/children at
+   any depth) into an ordered flat list, each tagged with its depth — used
+   to render sub-details directly inline (indented rows) instead of behind
+   a click-to-open modal. */
+const flattenForDisplay = (items = [], depth = 0) =>
+  items.flatMap((item) => {
+    const nested = item.subItems || item.entries || item.items || item.children;
+    const rows = [{ ...item, depth }];
+    if (Array.isArray(nested) && nested.length > 0) {
+      rows.push(...flattenForDisplay(nested, depth + 1));
+    }
+    return rows;
+  });
 const subTabTotal = (t) =>
   t.entries?.length > 0
     ? sumPersonEntries(t.entries)
@@ -61,6 +75,28 @@ const flattenSubTabs = (tabs = []) =>
         }))
       : [{ name: t.name, amount: t.directAmount }],
   );
+
+/* Special "virtual" expense categories that live in their own by-person
+   arrays (salaryEntries / advanceEntries / overtimeEntries) rather than
+   inside the generic expenseEntries map, but still count toward
+   Cash Expenses — same treatment Dashboard gives them. */
+const SPECIAL_EXPENSE_CATEGORIES = ["Salary", "Advance", "Overtime"];
+
+const categoryAmountForEntry = (entry, category) => {
+  if (category === "Salary")
+    return entry.salary ?? sumPersonEntries(entry.salaryEntries);
+  if (category === "Advance")
+    return entry.advance ?? sumPersonEntries(entry.advanceEntries);
+  if (category === "Overtime")
+    return entry.overtime ?? sumPersonEntries(entry.overtimeEntries);
+  return Number(normalizeExpenses(entry.expenseEntries)[category]) || 0;
+};
+const categorySubItemsForEntry = (entry, category) => {
+  if (category === "Salary") return entry.salaryEntries || [];
+  if (category === "Advance") return entry.advanceEntries || [];
+  if (category === "Overtime") return entry.overtimeEntries || [];
+  return entry.expenseSubEntries?.[category] || [];
+};
 
 /* ─── small UI atoms ──────────────────────────────────────────────────────── */
 function Badge({ children, variant = "neutral" }) {
@@ -146,6 +182,53 @@ function StatCard({
   );
 }
 
+/* Renders one breakdown row — and if that item itself carries a nested
+   array (subItems / entries / items / children), renders those indented
+   underneath, recursively, so a subname like "Ration" can itself expand
+   into Rice / Oil / Sugar (and those, in turn, into anything deeper). */
+function BreakdownRow({ item, depth = 0 }) {
+  const nested = item.subItems || item.entries || item.items || item.children;
+  const hasNested = Array.isArray(nested) && nested.length > 0;
+  return (
+    <div>
+      <div
+        className="flex justify-between rounded-lg px-3 py-2"
+        style={{
+          background: depth === 0 ? "var(--bg-elevated)" : "var(--bg-surface)",
+          marginLeft: depth * 16,
+          border: depth > 0 ? "1px dashed var(--border-sub)" : "none",
+        }}
+      >
+        <span style={{ color: "var(--text-primary)" }}>
+          {depth > 0 && <span style={{ color: "var(--text-muted)" }}>↳ </span>}
+          {item.name}
+          {item.note && (
+            <span
+              className="ml-1 italic text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              ({item.note})
+            </span>
+          )}
+        </span>
+        <span
+          className="font-semibold shrink-0 ml-3"
+          style={{ color: "var(--accent-text)" }}
+        >
+          ₹{fmt(item.amount)}
+        </span>
+      </div>
+      {hasNested && (
+        <div className="mt-1 space-y-1">
+          {nested.map((n, i) => (
+            <BreakdownRow key={i} item={n} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── BreakdownModal ──────────────────────────────────────────────────────── */
 function BreakdownModal({ title, items, onClose }) {
   const total = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
@@ -180,19 +263,7 @@ function BreakdownModal({ title, items, onClose }) {
             </p>
           )}
           {items.map((item, i) => (
-            <div
-              key={i}
-              className="flex justify-between rounded-lg px-3 py-2"
-              style={{ background: "var(--bg-elevated)" }}
-            >
-              <span style={{ color: "var(--text-primary)" }}>{item.name}</span>
-              <span
-                className="font-semibold"
-                style={{ color: "var(--accent-text)" }}
-              >
-                ₹{fmt(item.amount)}
-              </span>
-            </div>
+            <BreakdownRow key={i} item={item} />
           ))}
         </div>
         <div
@@ -402,6 +473,10 @@ export default function ShopDetailView() {
   const [sortKey, setSortKey] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [breakdownModal, setBreakdownModal] = useState(null);
+  // "all" = normal daily ledger. Any other value = the name of an expense
+  // category (incl. the virtual Salary / Advance / Overtime ones) and the
+  // ledger switches to a focused day-wise view for just that category.
+  const [expenseView, setExpenseView] = useState("all");
 
   const fetchShop = async () => {
     try {
@@ -473,6 +548,12 @@ export default function ShopDetailView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMonth, loading, id]);
 
+  // Reset the expense-category focus whenever the month changes, so you
+  // don't land on "Rent" for a month that has no Rent entries.
+  useEffect(() => {
+    setExpenseView("all");
+  }, [activeMonth]);
+
   const months = useMemo(() => {
     const set = new Set(
       daybooks.map((e) => {
@@ -511,6 +592,7 @@ export default function ShopDetailView() {
     (a, e) => ({
       kitchenSale: a.kitchenSale + (e.kitchenSale || 0),
       coffeeShop: a.coffeeShop + (e.coffeeShop || 0),
+      counterSale: a.counterSale + (e.counterSale || 0),
       totalSale: a.totalSale + (e.totalSale || 0),
       officialCr: a.officialCr + (e.officialCr || 0),
       personalCr: a.personalCr + (e.personalCr || 0),
@@ -522,6 +604,7 @@ export default function ShopDetailView() {
     {
       kitchenSale: 0,
       coffeeShop: 0,
+      counterSale: 0,
       totalSale: 0,
       officialCr: 0,
       personalCr: 0,
@@ -533,6 +616,66 @@ export default function ShopDetailView() {
   );
   const monthCashInHand =
     monthTotals.totalCash - monthTotals.cashExpenses - monthTotals.cashToOffice;
+
+  // ── Expense-category tabs: every distinct expense name that shows up in
+  // this month's entries for this shop, plus Salary / Advance / Overtime
+  // (which live in their own by-person arrays but still count as expenses).
+  const expenseCategoryNames = useMemo(() => {
+    const set = new Set();
+    monthEntries.forEach((e) => {
+      Object.entries(normalizeExpenses(e.expenseEntries)).forEach(([k, v]) => {
+        if (Number(v) > 0) set.add(k);
+      });
+      SPECIAL_EXPENSE_CATEGORIES.forEach((cat) => {
+        if (categoryAmountForEntry(e, cat) > 0) set.add(cat);
+      });
+    });
+    return Array.from(set).sort();
+  }, [monthEntries]);
+
+  // Day-wise rows + total for whichever category tab is active.
+  const categoryRows = useMemo(() => {
+    if (expenseView === "all") return [];
+    return monthEntries
+      .map((e) => ({
+        date: e.date,
+        amount: categoryAmountForEntry(e, expenseView),
+        subItems: categorySubItemsForEntry(e, expenseView),
+      }))
+      .filter((r) => r.amount > 0)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [monthEntries, expenseView]);
+  const categoryTotal = categoryRows.reduce((s, r) => s + r.amount, 0);
+
+  // Subtotal per subname for the active category, aggregated across every
+  // day in the month — e.g. "Ration" → Rice ₹1,240 · Ghee ₹860 · Salt ₹640,
+  // shown above the day-wise table. Any nested breakdown on a subname is
+  // preserved and merged too, recursively.
+  const mergeItemsByName = (items) => {
+    const map = new Map();
+    items.forEach((item) => {
+      const key = item.name?.trim() || "Unnamed";
+      if (!map.has(key)) map.set(key, { name: key, amount: 0, nested: [] });
+      const bucket = map.get(key);
+      bucket.amount += Number(item.amount) || 0;
+      const nested =
+        item.subItems || item.entries || item.items || item.children;
+      if (Array.isArray(nested) && nested.length > 0)
+        bucket.nested.push(...nested);
+    });
+    return Array.from(map.values()).map(({ nested, ...rest }) => ({
+      ...rest,
+      ...(nested.length > 0 ? { subItems: mergeItemsByName(nested) } : {}),
+    }));
+  };
+
+  const categorySubTotals = useMemo(() => {
+    if (expenseView === "all") return [];
+    const allItems = monthEntries.flatMap((e) =>
+      categorySubItemsForEntry(e, expenseView),
+    );
+    return mergeItemsByName(allItems);
+  }, [monthEntries, expenseView]);
 
   const handleSort = (k) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -547,6 +690,7 @@ export default function ShopDetailView() {
     { key: "openingCash", label: "Op. Cash" },
     { key: "kitchenSale", label: "Kitchen" },
     { key: "coffeeShop", label: "Coffee" },
+    { key: "counterSale", label: "Counter" },
     { key: "totalSale", label: "Total Sale" },
     { key: "officialCr", label: "Off. Cr" },
     { key: "personalCr", label: "Per. Cr" },
@@ -555,6 +699,40 @@ export default function ShopDetailView() {
     { key: "cashToOffice", label: "To Office" },
     { key: "cashExpenses", label: "Expenses" },
     { key: "cashInHand", label: "Cash In Hand" },
+  ];
+
+  // Same "Cash Expenses" breakdown Dashboard gives you: Salary / Advance /
+  // Overtime by-person entries first, then the generic expense categories
+  // (each expanded into its saved subnames where present).
+  const cashExpensesBreakdownItems = (row) => [
+    ...((row.salaryEntries || []).length > 0
+      ? row.salaryEntries.map((e) => ({ ...e, name: `[Salary] ${e.name}` }))
+      : row.salary > 0
+        ? [{ name: "Salary", amount: row.salary }]
+        : []),
+    ...((row.advanceEntries || []).length > 0
+      ? row.advanceEntries.map((e) => ({ ...e, name: `[Advance] ${e.name}` }))
+      : row.advance > 0
+        ? [{ name: "Advance", amount: row.advance }]
+        : []),
+    ...((row.overtimeEntries || []).length > 0
+      ? row.overtimeEntries.map((e) => ({
+          ...e,
+          name: `[Overtime] ${e.name}`,
+        }))
+      : row.overtime > 0
+        ? [{ name: "Overtime", amount: row.overtime }]
+        : []),
+    ...Object.entries(normalizeExpenses(row.expenseEntries))
+      .filter(([, v]) => Number(v) > 0)
+      .flatMap(([k, v]) =>
+        (row.expenseSubEntries?.[k] || []).length > 0
+          ? row.expenseSubEntries[k].map((item) => ({
+              ...item,
+              name: `[${k}] ${item.name}`,
+            }))
+          : [{ name: k, amount: v }],
+      ),
   ];
 
   if (loading) {
@@ -795,307 +973,598 @@ export default function ShopDetailView() {
           />
         </div>
 
-        {/* Ledger table — complete day-wise detail for the selected month */}
-        <div
-          className="rounded-2xl border overflow-hidden"
-          style={{
-            background: "var(--bg-surface)",
-            borderColor: "var(--border)",
-            boxShadow: "var(--shadow)",
-          }}
-        >
-          <div
-            className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b"
-            style={{ borderColor: "var(--border-sub)" }}
-          >
-            <div>
-              <h3
-                className="font-bold text-sm"
-                style={{ color: "var(--text-primary)" }}
-              >
-                Daily Ledger — {displayMonth(activeMonth)}
-              </h3>
-              <p
-                className="text-xs mt-0.5"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {filteredSorted.length} entries · click any figure for its
-                breakdown
-              </p>
-            </div>
-            <input
-              type="text"
-              placeholder="Search date…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="text-sm px-3 py-1.5 rounded-lg border outline-none w-full sm:w-40"
-              style={{
-                background: "var(--bg-elevated)",
-                borderColor: "var(--border)",
-                color: "var(--text-primary)",
-              }}
-            />
-          </div>
-
-          <div className="overflow-x-auto">
-            <table
-              className="w-full text-sm border-collapse"
-              style={{ minWidth: "1280px" }}
+        {/* Expense-category tabs — drill into one expense name at a time,
+            day-wise, for this shop. "All" returns to the full ledger. */}
+        {expenseCategoryNames.length > 0 && (
+          <div>
+            <p
+              className="text-xs font-semibold uppercase tracking-widest mb-2"
+              style={{ color: "var(--text-muted)" }}
             >
-              <thead>
-                <tr style={{ background: "var(--bg-elevated)" }}>
-                  {COLS.map((col) => (
+              Expenses — {displayMonth(activeMonth)}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setExpenseView("all")}
+                className="px-4 py-2 rounded-full text-sm font-bold border-2 cursor-pointer transition-all hover:-translate-y-0.5"
+                style={{
+                  borderColor:
+                    expenseView === "all"
+                      ? "var(--accent-border)"
+                      : "var(--border)",
+                  background:
+                    expenseView === "all"
+                      ? "var(--accent-soft)"
+                      : "var(--bg-elevated)",
+                  color:
+                    expenseView === "all"
+                      ? "var(--accent-text)"
+                      : "var(--text-sec)",
+                  boxShadow: expenseView === "all" ? "var(--shadow)" : "none",
+                }}
+              >
+                All
+              </button>
+              {expenseCategoryNames.map((cat) => (
+                <button
+                  type="button"
+                  key={cat}
+                  onClick={() => setExpenseView(cat)}
+                  className="px-4 py-2 rounded-full text-sm font-bold border-2 cursor-pointer transition-all hover:-translate-y-0.5"
+                  style={{
+                    borderColor:
+                      expenseView === cat
+                        ? "var(--danger-border)"
+                        : "var(--border)",
+                    background:
+                      expenseView === cat
+                        ? "var(--danger-soft)"
+                        : "var(--bg-elevated)",
+                    color:
+                      expenseView === cat
+                        ? "var(--danger-text)"
+                        : "var(--text-sec)",
+                    boxShadow: expenseView === cat ? "var(--shadow)" : "none",
+                  }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Focused single-category view */}
+        {expenseView !== "all" ? (
+          <div
+            className="rounded-2xl border overflow-hidden"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border)",
+              boxShadow: "var(--shadow)",
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-5 py-4 border-b"
+              style={{ borderColor: "var(--border-sub)" }}
+            >
+              <div>
+                <h3
+                  className="font-bold text-sm"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {expenseView} — {displayMonth(activeMonth)}
+                </h3>
+                <p
+                  className="text-xs mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {categoryRows.length} day
+                  {categoryRows.length === 1 ? "" : "s"} with this expense
+                </p>
+              </div>
+              <span
+                className="font-bold text-sm"
+                style={{ color: "var(--danger-text)" }}
+              >
+                Total: ₹{fmt(categoryTotal)}
+              </span>
+            </div>
+            {categorySubTotals.length > 0 && (
+              <div
+                className="px-5 py-3 border-b flex flex-wrap items-center gap-2"
+                style={{
+                  borderColor: "var(--border-sub)",
+                  background: "var(--bg-elevated)",
+                }}
+              >
+                <span
+                  className="text-xs font-semibold uppercase tracking-widest mr-1"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Subtotals:
+                </span>
+                {flattenForDisplay(categorySubTotals).map((item, i) => (
+                  <span
+                    key={i}
+                    className="text-xs px-2.5 py-1 rounded-full border"
+                    style={{
+                      marginLeft: item.depth * 10,
+                      borderColor: "var(--accent-border)",
+                      background: "var(--bg-surface)",
+                      color: "var(--text-sec)",
+                    }}
+                  >
+                    {item.depth > 0 && (
+                      <span style={{ color: "var(--text-muted)" }}>↳ </span>
+                    )}
+                    {item.name}:{" "}
+                    <b style={{ color: "var(--accent-text)" }}>
+                      ₹{fmt(item.amount)}
+                    </b>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr style={{ background: "var(--bg-elevated)" }}>
                     <th
-                      key={col.key}
-                      onClick={() => handleSort(col.key)}
-                      className="px-3 py-3 text-right first:text-left font-semibold text-xs uppercase tracking-wider cursor-pointer select-none border-b hover:opacity-80"
+                      className="px-4 py-3 text-left font-semibold text-xs uppercase tracking-wider border-b"
                       style={{
                         borderColor: "var(--border-sub)",
                         color: "var(--text-muted)",
                       }}
                     >
-                      {col.label}
-                      {sortKey === col.key && (
-                        <span className="ml-1 opacity-60">
-                          {sortDir === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
+                      Date
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSorted.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={COLS.length}
-                      className="text-center py-14"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      {search
-                        ? "No entries match your search."
-                        : `No entries logged for ${displayMonth(activeMonth)} yet.`}
-                    </td>
-                  </tr>
-                )}
-                {filteredSorted.map((row, idx) => {
-                  const negCash = row.cashInHand < 0;
-                  return (
-                    <tr
-                      key={row._id || row.date}
-                      className="border-b"
+                    <th
+                      className="px-4 py-3 text-right font-semibold text-xs uppercase tracking-wider border-b"
                       style={{
                         borderColor: "var(--border-sub)",
-                        background:
-                          idx % 2 === 0 ? "transparent" : "var(--bg-elevated)",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      Amount
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="text-center py-10"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        No "{expenseView}" entries this month.
+                      </td>
+                    </tr>
+                  )}
+                  {categoryRows.map((row, idx) => {
+                    const subRows = flattenForDisplay(row.subItems, 1);
+                    return (
+                      <Fragment key={row.date}>
+                        <tr
+                          className="border-b"
+                          style={{
+                            borderColor: "var(--border-sub)",
+                            background:
+                              idx % 2 === 0
+                                ? "transparent"
+                                : "var(--bg-elevated)",
+                          }}
+                        >
+                          <td
+                            className="px-4 py-2.5 font-semibold"
+                            style={{ color: "var(--accent-text)" }}
+                          >
+                            {fmtDateShort(row.date)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
+                            ₹{fmt(row.amount)}
+                          </td>
+                        </tr>
+                        {subRows.map((sub, i) => (
+                          <tr
+                            key={i}
+                            className="border-b"
+                            style={{
+                              borderColor: "var(--border-sub)",
+                              background:
+                                idx % 2 === 0
+                                  ? "transparent"
+                                  : "var(--bg-elevated)",
+                            }}
+                          >
+                            <td
+                              className="py-1.5 text-xs"
+                              style={{
+                                paddingLeft: 16 + sub.depth * 16,
+                                paddingRight: 16,
+                                color: "var(--text-sec)",
+                              }}
+                            >
+                              <span style={{ color: "var(--text-muted)" }}>
+                                ↳{" "}
+                              </span>
+                              {sub.name}
+                              {sub.note && (
+                                <span
+                                  className="ml-1 italic"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  ({sub.note})
+                                </span>
+                              )}
+                            </td>
+                            <td
+                              className="px-4 py-1.5 text-right text-xs tabular-nums"
+                              style={{ color: "var(--text-sec)" }}
+                            >
+                              ₹{fmt(sub.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+                {categoryRows.length > 0 && (
+                  <tfoot>
+                    <tr
+                      className="border-t-2 font-bold text-sm"
+                      style={{
+                        borderColor: "rgba(0,0,0,0.15)",
+                        background: "var(--bg-elevated)",
                       }}
                     >
                       <td
-                        className="px-3 py-3 font-medium whitespace-nowrap"
-                        style={{ color: "var(--accent-text)" }}
+                        className="px-4 py-3"
+                        style={{ color: "var(--text-muted)" }}
                       >
-                        {fmtDateShort(row.date)}
+                        TOTAL
                       </td>
                       <td
-                        className="px-3 py-3 text-right tabular-nums"
-                        style={{
-                          color:
-                            row.openingCash < 0
-                              ? "var(--danger-text)"
-                              : "var(--text-primary)",
-                        }}
+                        className="px-4 py-3 text-right tabular-nums"
+                        style={{ color: "var(--danger-text)" }}
                       >
-                        {fmt(row.openingCash)}
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ClickCell
-                          value={row.kitchenSale}
-                          items={flattenSubTabs(row.kitchenSubTabs || [])}
-                          onOpen={() =>
-                            setBreakdownModal({
-                              title: "Kitchen Sale Breakdown",
-                              items: flattenSubTabs(row.kitchenSubTabs || []),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ClickCell
-                          value={row.coffeeShop}
-                          items={flattenSubTabs(row.coffeeSubTabs || [])}
-                          onOpen={() =>
-                            setBreakdownModal({
-                              title: "Coffee Shop Breakdown",
-                              items: flattenSubTabs(row.coffeeSubTabs || []),
-                            })
-                          }
-                        />
-                      </td>
-                      <td
-                        className="px-3 py-3 text-right tabular-nums font-semibold"
-                        style={{ color: "var(--accent-text)" }}
-                      >
-                        {fmt(row.totalSale)}
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ClickCell
-                          value={row.officialCr}
-                          items={row.officialCrEntries || []}
-                          onOpen={() =>
-                            setBreakdownModal({
-                              title: "Official Credit Breakdown",
-                              items: row.officialCrEntries || [],
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ClickCell
-                          value={row.personalCr}
-                          items={row.personalCrEntries || []}
-                          onOpen={() =>
-                            setBreakdownModal({
-                              title: "Personal Credit Breakdown",
-                              items: row.personalCrEntries || [],
-                            })
-                          }
-                        />
-                      </td>
-                      <td
-                        className="px-3 py-3 text-right tabular-nums"
-                        style={{ color: "var(--text-sec)" }}
-                      >
-                        {fmt(row.upiReceived)}
-                      </td>
-                      <td
-                        className="px-3 py-3 text-right tabular-nums"
-                        style={{ color: "var(--text-primary)" }}
-                      >
-                        {fmt(row.totalCash)}
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ClickCell
-                          value={row.cashToOffice}
-                          items={row.cashToOfficeEntries || []}
-                          onOpen={() =>
-                            setBreakdownModal({
-                              title: "Cash to Office Breakdown",
-                              items: row.cashToOfficeEntries || [],
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ClickCell
-                          value={row.cashExpenses}
-                          items={Object.entries(row.expenseEntries || {}).map(
-                            ([k, v]) => ({ name: k, amount: v }),
-                          )}
-                          onOpen={() =>
-                            setBreakdownModal({
-                              title: "Cash Expenses Breakdown",
-                              items: Object.entries(
-                                row.expenseEntries || {},
-                              ).map(([k, v]) => ({ name: k, amount: v })),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right tabular-nums font-bold">
-                        <Badge variant={negCash ? "negative" : "positive"}>
-                          ₹{fmt(row.cashInHand)}
-                        </Badge>
+                        ₹{fmt(categoryTotal)}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr
-                  className="border-t-2 font-bold text-sm"
-                  style={{
-                    borderColor: "rgba(0,0,0,0.15)",
-                    background: "var(--bg-elevated)",
-                  }}
-                >
-                  <td
-                    className="px-3 py-3"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    TOTAL
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    —
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--accent-text)" }}
-                  >
-                    {fmt(monthTotals.kitchenSale)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--accent-text)" }}
-                  >
-                    {fmt(monthTotals.coffeeShop)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--accent-text)" }}
-                  >
-                    {fmt(monthTotals.totalSale)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--text-sec)" }}
-                  >
-                    {fmt(monthTotals.officialCr)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--text-sec)" }}
-                  >
-                    {fmt(monthTotals.personalCr)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--text-sec)" }}
-                  >
-                    {fmt(monthTotals.upiReceived)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {fmt(monthTotals.totalCash)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--text-sec)" }}
-                  >
-                    {fmt(monthTotals.cashToOffice)}
-                  </td>
-                  <td
-                    className="px-3 py-3 text-right tabular-nums"
-                    style={{ color: "var(--danger-text)" }}
-                  >
-                    {fmt(monthTotals.cashExpenses)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums font-bold">
-                    <Badge
-                      variant={monthCashInHand >= 0 ? "positive" : "negative"}
-                    >
-                      ₹{fmt(monthCashInHand)}
-                    </Badge>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Ledger table — complete day-wise detail for the selected month */
+          <div
+            className="rounded-2xl border overflow-hidden"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border)",
+              boxShadow: "var(--shadow)",
+            }}
+          >
+            <div
+              className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b"
+              style={{ borderColor: "var(--border-sub)" }}
+            >
+              <div>
+                <h3
+                  className="font-bold text-sm"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Daily Ledger — {displayMonth(activeMonth)}
+                </h3>
+                <p
+                  className="text-xs mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {filteredSorted.length} entries · click any figure for its
+                  breakdown
+                </p>
+              </div>
+              <input
+                type="text"
+                placeholder="Search date…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="text-sm px-3 py-1.5 rounded-lg border outline-none w-full sm:w-40"
+                style={{
+                  background: "var(--bg-elevated)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-primary)",
+                }}
+              />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table
+                className="w-full text-sm border-collapse"
+                style={{ minWidth: "1380px" }}
+              >
+                <thead>
+                  <tr style={{ background: "var(--bg-elevated)" }}>
+                    {COLS.map((col) => (
+                      <th
+                        key={col.key}
+                        onClick={() => handleSort(col.key)}
+                        className="px-3 py-3 text-right first:text-left font-semibold text-xs uppercase tracking-wider cursor-pointer select-none border-b hover:opacity-80"
+                        style={{
+                          borderColor: "var(--border-sub)",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {col.label}
+                        {sortKey === col.key && (
+                          <span className="ml-1 opacity-60">
+                            {sortDir === "asc" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSorted.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={COLS.length}
+                        className="text-center py-14"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {search
+                          ? "No entries match your search."
+                          : `No entries logged for ${displayMonth(activeMonth)} yet.`}
+                      </td>
+                    </tr>
+                  )}
+                  {filteredSorted.map((row, idx) => {
+                    const negCash = row.cashInHand < 0;
+                    const expBreakdown = cashExpensesBreakdownItems(row);
+                    return (
+                      <tr
+                        key={row._id || row.date}
+                        className="border-b"
+                        style={{
+                          borderColor: "var(--border-sub)",
+                          background:
+                            idx % 2 === 0
+                              ? "transparent"
+                              : "var(--bg-elevated)",
+                        }}
+                      >
+                        <td
+                          className="px-3 py-3 font-medium whitespace-nowrap"
+                          style={{ color: "var(--accent-text)" }}
+                        >
+                          {fmtDateShort(row.date)}
+                        </td>
+                        <td
+                          className="px-3 py-3 text-right tabular-nums"
+                          style={{
+                            color:
+                              row.openingCash < 0
+                                ? "var(--danger-text)"
+                                : "var(--text-primary)",
+                          }}
+                        >
+                          {fmt(row.openingCash)}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.kitchenSale}
+                            items={flattenSubTabs(row.kitchenSubTabs || [])}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Kitchen Sale Breakdown",
+                                items: flattenSubTabs(row.kitchenSubTabs || []),
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.coffeeShop}
+                            items={flattenSubTabs(row.coffeeSubTabs || [])}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Coffee Shop Breakdown",
+                                items: flattenSubTabs(row.coffeeSubTabs || []),
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.counterSale}
+                            items={flattenSubTabs(row.counterSubTabs || [])}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Counter Sale Breakdown",
+                                items: flattenSubTabs(row.counterSubTabs || []),
+                              })
+                            }
+                          />
+                        </td>
+                        <td
+                          className="px-3 py-3 text-right tabular-nums font-semibold"
+                          style={{ color: "var(--accent-text)" }}
+                        >
+                          {fmt(row.totalSale)}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.officialCr}
+                            items={row.officialCrEntries || []}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Official Credit Breakdown",
+                                items: row.officialCrEntries || [],
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.personalCr}
+                            items={row.personalCrEntries || []}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Personal Credit Breakdown",
+                                items: row.personalCrEntries || [],
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.upiReceived}
+                            items={row.upiReceivedEntries || []}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "UPI Received Breakdown",
+                                items: row.upiReceivedEntries || [],
+                              })
+                            }
+                          />
+                        </td>
+                        <td
+                          className="px-3 py-3 text-right tabular-nums"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {fmt(row.totalCash)}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.cashToOffice}
+                            items={row.cashToOfficeEntries || []}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Cash to Office Breakdown",
+                                items: row.cashToOfficeEntries || [],
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ClickCell
+                            value={row.cashExpenses}
+                            items={expBreakdown}
+                            onOpen={() =>
+                              setBreakdownModal({
+                                title: "Cash Expenses Breakdown",
+                                items: expBreakdown,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums font-bold">
+                          <Badge variant={negCash ? "negative" : "positive"}>
+                            ₹{fmt(row.cashInHand)}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr
+                    className="border-t-2 font-bold text-sm"
+                    style={{
+                      borderColor: "rgba(0,0,0,0.15)",
+                      background: "var(--bg-elevated)",
+                    }}
+                  >
+                    <td
+                      className="px-3 py-3"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      TOTAL
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      —
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--accent-text)" }}
+                    >
+                      {fmt(monthTotals.kitchenSale)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--accent-text)" }}
+                    >
+                      {fmt(monthTotals.coffeeShop)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--accent-text)" }}
+                    >
+                      {fmt(monthTotals.counterSale)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--accent-text)" }}
+                    >
+                      {fmt(monthTotals.totalSale)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--text-sec)" }}
+                    >
+                      {fmt(monthTotals.officialCr)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--text-sec)" }}
+                    >
+                      {fmt(monthTotals.personalCr)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--text-sec)" }}
+                    >
+                      {fmt(monthTotals.upiReceived)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {fmt(monthTotals.totalCash)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--text-sec)" }}
+                    >
+                      {fmt(monthTotals.cashToOffice)}
+                    </td>
+                    <td
+                      className="px-3 py-3 text-right tabular-nums"
+                      style={{ color: "var(--danger-text)" }}
+                    >
+                      {fmt(monthTotals.cashExpenses)}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums font-bold">
+                      <Badge
+                        variant={monthCashInHand >= 0 ? "positive" : "negative"}
+                      >
+                        ₹{fmt(monthCashInHand)}
+                      </Badge>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
       </main>
 
       {breakdownModal && (

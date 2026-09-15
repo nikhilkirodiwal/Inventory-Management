@@ -61,6 +61,11 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
     name: "",
     amount: "",
     creditedAmount: "0",
+    role: "on-role",
+    entryMode: "quantity",
+    quantity: "",
+    rate: "",
+    billNo: "",
     note: "",
   });
 
@@ -167,6 +172,11 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
           date: entry.date,
           name: item.name,
           amount: item.amount,
+          role: item.role,
+          entryMode: item.entryMode,
+          quantity: item.quantity,
+          rate: item.rate,
+          billNo: item.billNo,
           note: item.note || "",
         });
       });
@@ -229,10 +239,21 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
   const saveAddedEntry = async (event) => {
     event.preventDefault();
     const field = fields.find((f) => f.key === addForm.fieldKey) || fields[0];
-    const amount = Number(addForm.amount);
-    const name = addForm.name.trim();
+    const isPurchaseCredit = field.key === "purchaseCredit";
+    const isSalary = field.key === "salary";
+    const amount =
+      isPurchaseCredit && addForm.entryMode === "quantity"
+        ? Number(addForm.quantity) * Number(addForm.rate)
+        : Number(addForm.amount);
+    const name =
+      addForm.name.trim() ||
+      (isPurchaseCredit && addForm.entryMode === "bill" && addForm.billNo
+        ? `Bill ${addForm.billNo.trim()}`
+        : isPurchaseCredit && addForm.quantity
+          ? `Qty ${addForm.quantity}`
+          : "");
     if (!addForm.date || !name || !Number.isFinite(amount) || amount <= 0) {
-      alert("Enter a date, name, and a valid amount.");
+      alert("Enter a date, required details, and a valid amount.");
       return;
     }
 
@@ -254,6 +275,16 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
         name,
         amount,
         note: addForm.note.trim(),
+        ...(isSalary ? { role: addForm.role || "on-role" } : {}),
+        ...(isPurchaseCredit
+          ? {
+              entryMode: addForm.entryMode || "quantity",
+              quantity:
+                addForm.entryMode === "quantity" ? Number(addForm.quantity) || 0 : undefined,
+              rate: Number(addForm.rate) || 0,
+              billNo: addForm.entryMode === "bill" ? addForm.billNo.trim() : "",
+            }
+          : {}),
         ...(field.showCredited
           ? {
               creditedAmount: Math.max(
@@ -296,7 +327,15 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
         setYear(Number(monthKey.slice(0, 4)));
         setDrillMonth(monthKey);
         setAddOpen(false);
-        setAddForm((p) => ({ ...p, name: "", amount: "", note: "" }));
+        setAddForm((p) => ({
+          ...p,
+          name: "",
+          amount: "",
+          note: "",
+          quantity: "",
+          rate: "",
+          billNo: "",
+        }));
       }
     } catch (err) {
       alert("Couldn't add entry: " + (err?.response?.data?.message || err.message));
@@ -529,6 +568,22 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
                               >
                                 {it.name}
                               </p>
+                              {it.role && (
+                                <p
+                                  className="text-xs mt-0.5 truncate"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {salaryRoleLabel(it.role)}
+                                </p>
+                              )}
+                              {purchaseCreditMeta(it) && (
+                                <p
+                                  className="text-xs mt-0.5 truncate"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {purchaseCreditMeta(it)}
+                                </p>
+                              )}
                               {it.note && (
                                 <p
                                   className="text-xs mt-0.5 truncate"
@@ -858,11 +913,11 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
                         <table className="w-full text-sm border-collapse">
                           <thead>
                             <tr style={{ background: "var(--bg-elevated)" }}>
-                              {["Date", "Name", "Amount", "Note"].map(
+                              {["Date", "Name", "Type", "Amount", "Note"].map(
                                 (h, i) => (
                                   <th
                                     key={h}
-                                    className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b ${i === 2 ? "text-right" : "text-left"}`}
+                                    className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b ${i === 3 ? "text-right" : "text-left"}`}
                                     style={{
                                       borderColor: "var(--border-sub)",
                                       color: "var(--text-muted)",
@@ -900,6 +955,14 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
                                   {r.name}
                                 </td>
                                 <td
+                                  className="px-4 py-2.5 text-xs"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {r.role
+                                    ? salaryRoleLabel(r.role)
+                                    : purchaseCreditMeta(r) || "-"}
+                                </td>
+                                <td
                                   className="px-4 py-2.5 text-right tabular-nums font-semibold"
                                   style={{ color: "var(--text-primary)" }}
                                 >
@@ -924,7 +987,7 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
                             >
                               <td
                                 className="px-4 py-2.5"
-                                colSpan={2}
+                                colSpan={3}
                                 style={{ color: "var(--text-muted)" }}
                               >
                                 TOTAL
@@ -983,6 +1046,27 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
   );
 }
 
+function salaryRoleLabel(role) {
+  return role === "off-role" ? "Off-role" : "On-role";
+}
+
+function purchaseCreditMeta(item) {
+  if (item.entryMode === "bill") {
+    return [item.billNo ? `Bill No. ${item.billNo}` : "", item.rate ? `Rate ${fmt(item.rate)}` : ""]
+      .filter(Boolean)
+      .join(" | ");
+  }
+  if (item.entryMode === "quantity" || item.quantity || item.rate) {
+    return [
+      item.quantity ? `Qty ${item.quantity}` : "",
+      item.rate ? `Rate ${fmt(item.rate)}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+  return "";
+}
+
 function EmptyState({ title, monthLabel }) {
   return (
     <div
@@ -998,6 +1082,12 @@ function EmptyState({ title, monthLabel }) {
 
 function AddEntryDialog({ title, fields, form, commonNames = [], saving, onChange, onSave, onClose }) {
   const selectedField = fields.find((field) => field.key === form.fieldKey) || fields[0];
+  const isPurchaseCredit = selectedField.key === "purchaseCredit";
+  const isSalary = selectedField.key === "salary";
+  const computedPurchaseAmount =
+    isPurchaseCredit && form.entryMode === "quantity"
+      ? (Number(form.quantity) || 0) * (Number(form.rate) || 0)
+      : form.amount;
   const suggestions = Array.isArray(commonNames)
     ? commonNames
     : flattenExpenseSubnames(commonNames);
@@ -1055,32 +1145,141 @@ function AddEntryDialog({ title, fields, form, commonNames = [], saving, onChang
               style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
             />
           </label>
-          <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
-            Amount
+          {!isPurchaseCredit && (
+            <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+              Amount
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={form.amount}
+                onChange={(event) => onChange("amount", event.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+            </label>
+          )}
+        </div>
+        {isSalary && (
+          <label className="block text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+            Role
+            <select
+              value={form.role || "on-role"}
+              onChange={(event) => onChange("role", event.target.value)}
+              className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+              style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <option value="on-role">On-role</option>
+              <option value="off-role">Off-role</option>
+            </select>
+          </label>
+        )}
+        {isPurchaseCredit && (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-2 text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+              Entry type
+              <select
+                value={form.entryMode || "quantity"}
+                onChange={(event) => onChange("entryMode", event.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="quantity">Quantity / Rate / Amount</option>
+                <option value="bill">Bill No. / Rate / Amount</option>
+              </select>
+            </label>
+            <label className="col-span-2 text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+              Credit Name
+              <input
+                list={listId}
+                required
+                value={form.name}
+                onChange={(event) => onChange("name", event.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+            </label>
+            {suggestions.length > 0 && (
+              <div className="col-span-2 flex flex-wrap gap-1.5 -mt-1">
+                {suggestions.map((name) => (
+                  <button
+                    type="button"
+                    key={name}
+                    onClick={() => onChange("name", name)}
+                    className="px-2 py-1 rounded-lg border text-[10px]"
+                    style={{ borderColor: "var(--accent-border)", color: "var(--accent-text)", background: "var(--accent-soft)" }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {form.entryMode === "bill" ? (
+              <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+                Bill No.
+                <input
+                  required
+                  value={form.billNo}
+                  onChange={(event) => onChange("billNo", event.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                  style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                />
+              </label>
+            ) : (
+              <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+                Quantity
+                <input
+                  type="number"
+                  required
+                  value={form.quantity}
+                  onChange={(event) => onChange("quantity", event.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                  style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                />
+              </label>
+            )}
+            <label className="text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+              Rate
+              <input
+                type="number"
+                required
+                value={form.rate}
+                onChange={(event) => onChange("rate", event.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+            </label>
+            <label className="col-span-2 text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+              {form.entryMode === "quantity" ? "Amount (auto)" : "Amount"}
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={computedPurchaseAmount}
+                onChange={(event) => onChange("amount", event.target.value)}
+                readOnly={form.entryMode === "quantity"}
+                className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+            </label>
+          </div>
+        )}
+        {!isPurchaseCredit && (
+          <label className="block text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
+            Name
             <input
-              type="number"
-              min="0.01"
-              step="0.01"
+              list={listId}
               required
-              value={form.amount}
-              onChange={(event) => onChange("amount", event.target.value)}
+              value={form.name}
+              onChange={(event) => onChange("name", event.target.value)}
               className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
               style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
             />
           </label>
-        </div>
-        <label className="block text-xs font-semibold" style={{ color: "var(--text-sec)" }}>
-          {selectedField.key === "purchaseCredit" ? "What was purchased" : "Name"}
-          <input
-            list={listId}
-            required
-            value={form.name}
-            onChange={(event) => onChange("name", event.target.value)}
-            className="w-full mt-1 px-3 py-2 rounded-lg border text-sm font-normal outline-none"
-            style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-          />
-        </label>
-        {suggestions.length > 0 && (
+        )}
+        {!isPurchaseCredit && suggestions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 -mt-1">
             {suggestions.map((name) => (
               <button

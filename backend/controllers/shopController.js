@@ -5,14 +5,18 @@ import DayBook from "../models/dayBook.js";
 import LedgerEntry from "../models/ledgerEntry.js";
 import { computeShopPnl } from "../utils/pnl.js";
 
-/* Flatten a daybook doc's Map field (expenseEntries) so it survives JSON
-   serialization. Mongoose Maps stringify to "{}" via a bare res.json() call
-   unless flattened first — the /daybook routes already do this via their own
-   serialize() helper; shop routes need the same treatment. */
+/* Flatten a daybook doc's Map fields (expenseEntries, expenseSubEntries) so
+   they survive JSON serialization. Mongoose Maps stringify to "{}" via a
+   bare res.json() call unless flattened first — the /daybook routes already
+   do this via their own serialize() helper; shop routes need the same
+   treatment (both fields, not just expenseEntries). */
 const serializeDaybook = (doc) => {
   const obj = doc.toObject ? doc.toObject({ getters: false }) : { ...doc };
   if (obj.expenseEntries instanceof Map) {
     obj.expenseEntries = Object.fromEntries(obj.expenseEntries);
+  }
+  if (obj.expenseSubEntries instanceof Map) {
+    obj.expenseSubEntries = Object.fromEntries(obj.expenseSubEntries);
   }
   return obj;
 };

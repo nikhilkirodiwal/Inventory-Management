@@ -4,6 +4,11 @@ const personEntrySchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     amount: { type: Number, default: 0 },
+    role: { type: String, enum: ["on-role", "off-role", ""], default: "" },
+    entryMode: { type: String, enum: ["quantity", "bill", ""], default: "" },
+    quantity: { type: Number, default: 0 },
+    rate: { type: Number, default: 0 },
+    billNo: { type: String, default: "" },
     note: { type: String, default: "" }, // optional free-text note per entry
   },
   { _id: false },

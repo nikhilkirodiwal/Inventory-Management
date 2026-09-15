@@ -2482,6 +2482,7 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
           title="Salary"
           entries={form.salaryEntries}
           commonNames={personNames.salary}
+          showSalaryRole
           onClose={() => setSalaryPopup(false)}
           onSave={(rows) => {
             set("salaryEntries", rows);
@@ -2518,6 +2519,7 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
           title="Purchase Credit"
           entries={form.purchaseCreditEntries}
           commonNames={personNames.purchaseCredit}
+          showPurchaseCreditMode
           onClose={() => setPurchaseCreditPopup(false)}
           onSave={(rows) => {
             set("purchaseCreditEntries", rows);
