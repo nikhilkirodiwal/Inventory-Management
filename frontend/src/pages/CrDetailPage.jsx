@@ -35,6 +35,14 @@ import { flattenExpenseSubnames, loadPersonNames } from "../utils/personNames";
  * `fields` is an array of { key, entriesKey, label, showCredited? }.
  * dayCards/personGrouped use fields[0]; flatTable renders one table per field.
  */
+
+const REPORT_FOR_FIELD = {
+  personalCr: "credit",
+  officialCr: "credit",
+  salary: "payroll",
+  purchaseCredit: "purchase",
+};
+
 export default function CrDetailPage({ title, mode = "dayCards", fields }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -1013,6 +1021,44 @@ export default function CrDetailPage({ title, mode = "dayCards", fields }) {
             })}
           </div>
         )}
+
+        {/* ═══ Reports shortcut ═══ */}
+<button
+  type="button"
+  onClick={() =>
+    navigate("/dashboard/reports", {
+      state: {
+        report: REPORT_FOR_FIELD[primaryField.key],
+        month: drillMonth || undefined,
+      },
+    })
+  }
+  className="w-full rounded-2xl border p-4 flex items-center justify-between gap-3 transition hover:-translate-y-0.5"
+  style={{
+    background: "var(--accent-soft)",
+    borderColor: "var(--accent-border)",
+    boxShadow: "var(--shadow)",
+  }}
+>
+  <div className="text-left">
+    <p className="text-sm font-bold" style={{ color: "var(--accent-text)" }}>
+      📊 Reports
+    </p>
+    <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+      Sales, cash flow, credit, expenses, payroll & purchase reports. Print or download.
+    </p>
+  </div>
+  <span
+    className="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap"
+    style={{
+      background: "var(--bg-surface)",
+      color: "var(--accent-text)",
+      border: "1px solid var(--accent-border)",
+    }}
+  >
+    Open →
+  </span>
+</button>
       </main>
 
       {addOpen && (

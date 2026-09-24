@@ -467,7 +467,16 @@ function PersonEntryPopup({
  * Shows existing named sub-tabs (e.g. "Café Sale", "Café Night", or any custom name)
  * with amounts, lets user add custom tabs, and gives the total.
  */
-function SaleSubTabPopup({ title, subTabs, onClose, onSave, personNames, tabNames, fieldKey, onPersonNames }) {
+function SaleSubTabPopup({
+  title,
+  subTabs,
+  onClose,
+  onSave,
+  personNames,
+  tabNames,
+  fieldKey,
+  onPersonNames,
+}) {
   const [tabs, setTabs] = useState(
     subTabs.length > 0
       ? subTabs
@@ -632,7 +641,9 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave, personNames, tabName
             </div>
           ))}
           <datalist id={`sale-tab-names-${fieldKey}`}>
-            {savedTabNames.map((name) => <option key={name} value={name} />)}
+            {savedTabNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
           </datalist>
           <div className="flex gap-2 pt-2">
             <input
@@ -660,7 +671,10 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave, personNames, tabName
           </div>
           {savedTabNames.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] mr-1" style={{ color: "var(--text-muted)" }}>
+              <span
+                className="text-[10px] mr-1"
+                style={{ color: "var(--text-muted)" }}
+              >
                 Suggested tabs:
               </span>
               {savedTabNames.map((name) => (
@@ -730,7 +744,13 @@ function SaleSubTabPopup({ title, subTabs, onClose, onSave, personNames, tabName
 }
 
 /* ─── ExpensePopup ────────────────────────────────────────────────────────── */
-function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onClose, onSave }) {
+function ExpensePopup({
+  expenses,
+  expenseSubEntries = {},
+  commonNames = [],
+  onClose,
+  onSave,
+}) {
   const expenseNameSuggestions = flattenExpenseSubnames(commonNames);
   const stripLegacy = (list) =>
     list.filter((c) => !/^salary$/i.test(c) && !/^advance$/i.test(c));
@@ -745,7 +765,11 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
         ),
       ];
     } catch {
-      return [...new Set(DEFAULT_EXPENSE_CATS.concat(Object.keys(expenseSubEntries || {})))];
+      return [
+        ...new Set(
+          DEFAULT_EXPENSE_CATS.concat(Object.keys(expenseSubEntries || {})),
+        ),
+      ];
     }
   });
   const [vals, setVals] = useState(() => normalizeExpenses(expenses));
@@ -761,7 +785,10 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
   const addSubEntry = (category) =>
     setSubEntries((previous) => ({
       ...previous,
-      [category]: [...(previous[category] || []), { name: "", amount: "", note: "" }],
+      [category]: [
+        ...(previous[category] || []),
+        { name: "", amount: "", note: "" },
+      ],
     }));
   const updateSubEntry = (category, index, key, value) =>
     setSubEntries((previous) => ({
@@ -773,7 +800,9 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
   const removeSubEntry = (category, index) =>
     setSubEntries((previous) => ({
       ...previous,
-      [category]: (previous[category] || []).filter((_, itemIndex) => itemIndex !== index),
+      [category]: (previous[category] || []).filter(
+        (_, itemIndex) => itemIndex !== index,
+      ),
     }));
   const addCat = () => {
     const c = newCat.trim();
@@ -860,7 +889,8 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
                     key={name}
                     onClick={() => {
                       const category = name;
-                      const savedSubnames = normalizeExpenseSubnames(commonNames)[category] || [];
+                      const savedSubnames =
+                        normalizeExpenseSubnames(commonNames)[category] || [];
                       const updated = cats.includes(category)
                         ? cats
                         : [...cats, category];
@@ -868,13 +898,28 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
                       setSubEntries((previous) => {
                         const existingItems = previous[category] || [];
                         const additions = savedSubnames
-                          .filter((subname) => !existingItems.some((item) => item.name === subname))
-                          .map((subname) => ({ name: subname, amount: "", note: "" }));
+                          .filter(
+                            (subname) =>
+                              !existingItems.some(
+                                (item) => item.name === subname,
+                              ),
+                          )
+                          .map((subname) => ({
+                            name: subname,
+                            amount: "",
+                            note: "",
+                          }));
                         return additions.length > 0
-                          ? { ...previous, [category]: [...existingItems, ...additions] }
+                          ? {
+                              ...previous,
+                              [category]: [...existingItems, ...additions],
+                            }
                           : previous;
                       });
-                      localStorage.setItem("expenseCats", JSON.stringify(updated));
+                      localStorage.setItem(
+                        "expenseCats",
+                        JSON.stringify(updated),
+                      );
                     }}
                     className="px-2 py-1 rounded-lg border text-xs font-medium"
                     style={{
@@ -884,7 +929,8 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
                       opacity: cats.includes(name) ? 0.5 : 1,
                     }}
                   >
-                    {cats.includes(name) ? "✓ " : "+ "}{name}
+                    {cats.includes(name) ? "✓ " : "+ "}
+                    {name}
                   </button>
                 ))}
               </div>
@@ -892,16 +938,35 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
           )}
           <div className="grid grid-cols-2 gap-3">
             {cats.map((c) => (
-              <div key={c} className="rounded-xl border p-3 space-y-2" style={{ borderColor: "var(--border-sub)", background: "var(--bg-elevated)" }}>
+              <div
+                key={c}
+                className="rounded-xl border p-3 space-y-2"
+                style={{
+                  borderColor: "var(--border-sub)",
+                  background: "var(--bg-elevated)",
+                }}
+              >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <label className="block text-xs font-semibold truncate" style={{ color: "var(--text-sec)" }}>
+                    <label
+                      className="block text-xs font-semibold truncate"
+                      style={{ color: "var(--text-sec)" }}
+                    >
                       {c}
                     </label>
-                    <span className="text-xs font-bold" style={{ color: "var(--accent-text)" }}>
-                      ₹{fmt((subEntries[c] || []).length > 0
-                        ? (subEntries[c] || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
-                        : vals[c] || 0)}
+                    <span
+                      className="text-xs font-bold"
+                      style={{ color: "var(--accent-text)" }}
+                    >
+                      ₹
+                      {fmt(
+                        (subEntries[c] || []).length > 0
+                          ? (subEntries[c] || []).reduce(
+                              (sum, item) => sum + (Number(item.amount) || 0),
+                              0,
+                            )
+                          : vals[c] || 0,
+                      )}
                     </span>
                   </div>
                   {(subEntries[c] || []).length === 0 && (
@@ -909,22 +974,80 @@ function ExpensePopup({ expenses, expenseSubEntries = {}, commonNames = [], onCl
                       type="number"
                       placeholder="Direct amount"
                       value={vals[c] || ""}
-                      onChange={(e) => setVals((p) => ({ ...p, [c]: e.target.value }))}
+                      onChange={(e) =>
+                        setVals((p) => ({ ...p, [c]: e.target.value }))
+                      }
                       className="w-full mt-1 px-3 py-1.5 rounded-lg border text-sm outline-none"
-                      style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      style={{
+                        background: "var(--bg-surface)",
+                        borderColor: "var(--border)",
+                        color: "var(--text-primary)",
+                      }}
                     />
                   )}
                 </div>
                 {(subEntries[c] || []).map((item, index) => (
-                  <div key={index} className="grid grid-cols-[minmax(0,1fr)_6rem_auto] gap-2">
-                    <input placeholder="Subname" value={item.name || ""} onChange={(e) => updateSubEntry(c, index, "name", e.target.value)} className="px-2.5 py-1.5 rounded-lg border text-xs outline-none" style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
-                    <input type="number" placeholder="Amount" value={item.amount || ""} onChange={(e) => updateSubEntry(c, index, "amount", e.target.value)} className="px-2.5 py-1.5 rounded-lg border text-xs outline-none" style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
-                    <button type="button" onClick={() => removeSubEntry(c, index)} className="px-2 rounded-lg border text-xs" style={{ borderColor: "var(--danger-border)", color: "var(--danger-text)" }}>×</button>
+                  <div
+                    key={index}
+                    className="grid grid-cols-[minmax(0,1fr)_6rem_auto] gap-2"
+                  >
+                    <input
+                      placeholder="Subname"
+                      value={item.name || ""}
+                      onChange={(e) =>
+                        updateSubEntry(c, index, "name", e.target.value)
+                      }
+                      className="px-2.5 py-1.5 rounded-lg border text-xs outline-none"
+                      style={{
+                        background: "var(--bg-surface)",
+                        borderColor: "var(--border)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="Amount"
+                      value={item.amount || ""}
+                      onChange={(e) =>
+                        updateSubEntry(c, index, "amount", e.target.value)
+                      }
+                      className="px-2.5 py-1.5 rounded-lg border text-xs outline-none"
+                      style={{
+                        background: "var(--bg-surface)",
+                        borderColor: "var(--border)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSubEntry(c, index)}
+                      className="px-2 rounded-lg border text-xs"
+                      style={{
+                        borderColor: "var(--danger-border)",
+                        color: "var(--danger-text)",
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
                 <div className="flex items-center justify-between gap-2">
-                  <button type="button" onClick={() => addSubEntry(c)} className="text-xs font-semibold" style={{ color: "var(--accent-text)" }}>+ Add subname</button>
-                  <button type="button" onClick={() => delCat(c)} className="text-xs" style={{ color: "var(--danger-text)" }}>Remove category</button>
+                  <button
+                    type="button"
+                    onClick={() => addSubEntry(c)}
+                    className="text-xs font-semibold"
+                    style={{ color: "var(--accent-text)" }}
+                  >
+                    + Add subname
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => delCat(c)}
+                    className="text-xs"
+                    style={{ color: "var(--danger-text)" }}
+                  >
+                    Remove category
+                  </button>
                 </div>
               </div>
             ))}
@@ -1592,7 +1715,12 @@ function DetailModal({ entry, onClose }) {
                     className="rounded-xl p-3"
                     style={{ background: "var(--bg-surface)" }}
                   >
-                    <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{key}</p>
+                    <p
+                      className="text-xs mb-1"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {key}
+                    </p>
                     <p
                       className="font-semibold"
                       style={{ color: "var(--text-primary)" }}
@@ -1602,9 +1730,15 @@ function DetailModal({ entry, onClose }) {
                     {(entry.expenseSubEntries?.[key] || []).length > 0 && (
                       <div className="mt-2 space-y-1">
                         {entry.expenseSubEntries[key].map((item, index) => (
-                          <div key={index} className="flex justify-between gap-2 text-xs" style={{ color: "var(--text-sec)" }}>
+                          <div
+                            key={index}
+                            className="flex justify-between gap-2 text-xs"
+                            style={{ color: "var(--text-sec)" }}
+                          >
                             <span className="truncate">{item.name}</span>
-                            <span className="shrink-0">₹{fmt(item.amount)}</span>
+                            <span className="shrink-0">
+                              ₹{fmt(item.amount)}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -1668,7 +1802,17 @@ function DetailModal({ entry, onClose }) {
 }
 
 /* ─── EntryModal ──────────────────────────────────────────────────────────── */
-function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose, personNames, tabNames, onTabNames, onPersonNames }) {
+function EntryModal({
+  entry,
+  daybookEntries = [],
+  existingDates,
+  onSave,
+  onClose,
+  personNames,
+  tabNames,
+  onTabNames,
+  onPersonNames,
+}) {
   const initForm = (e) => {
     if (e)
       return {
@@ -1738,7 +1882,8 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
     };
   };
 
-  const [form, setForm] = useState(() => initForm(entry));
+  const [initialForm] = useState(() => initForm(entry));
+  const [form, setForm] = useState(initialForm);
   const [kitchenPopup, setKitchenPopup] = useState(false);
   const [coffeePopup, setCoffeePopup] = useState(false);
   const [counterPopup, setCounterPopup] = useState(false);
@@ -1753,12 +1898,28 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
   const [expensePopup, setExpensePopup] = useState(false);
   const [dateError, setDateError] = useState("");
   const [dateConfirmOpen, setDateConfirmOpen] = useState(false);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [partnerOptions, setPartnerOptions] = useState([]);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
   useEffect(() => {
+    const bodyOverflow = document.body.style.overflow;
+    const htmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = bodyOverflow;
+      document.documentElement.style.overflow = htmlOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
     API.get("/partners/options")
-      .then(({ data }) => setPartnerOptions(data.success ? data.data || [] : []))
+      .then(({ data }) =>
+        setPartnerOptions(data.success ? data.data || [] : []),
+      )
       .catch(() => setPartnerOptions([]));
   }, []);
 
@@ -1794,7 +1955,8 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
   // Cash Expenses = generic category map + Salary + Advance (Salary/Advance
   // moved out of the generic map into their own by-person breakdowns, but
   // still count toward the same Cash Expenses total, right alongside it).
-  const cashExpenses = sumExpenses(form.expenseEntries) + salary + advance + overtime;
+  const cashExpenses =
+    sumExpenses(form.expenseEntries) + salary + advance + overtime;
 
   // ④ totalSale = sum of all sale tabs (kitchen + coffee + their sub-tabs)
   const totalSale = kitchenSale + coffeeShop + counterSale;
@@ -1807,7 +1969,9 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
   const handleDateChange = (v) => {
     const originalDate = entry?.date?.split("T")[0] ?? entry?.date;
     if (existingDates.includes(v) && v !== originalDate)
-      setDateError("Entry already exists. Change the data entry for that date.");
+      setDateError(
+        "Entry already exists. Change the data entry for that date.",
+      );
     else if (new Date(v) > new Date(todayStr()))
       setDateError("Cannot enter a future date.");
     else setDateError("");
@@ -1823,6 +1987,17 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
       return;
     }
     submitEntry();
+  };
+
+  const hasUnsavedDetails =
+    JSON.stringify(form) !== JSON.stringify(initialForm);
+
+  const requestClose = () => {
+    if (hasUnsavedDetails) {
+      setCloseConfirmOpen(true);
+      return;
+    }
+    onClose();
   };
 
   const submitEntry = () => {
@@ -1904,20 +2079,20 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      className="fixed inset-0 z-50 overflow-hidden"
+      style={{
+        background: "var(--bg-surface)",
+        overscrollBehavior: "contain",
+      }}
     >
       <div
-        className="rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-y-auto border"
+        className="h-full w-full overflow-y-auto overscroll-contain"
         style={{
           background: "var(--bg-surface)",
-          borderColor: "var(--border)",
-          boxShadow: "var(--shadow)",
         }}
       >
         <div
-          className="flex items-center justify-between px-6 py-4 border-b sticky top-0 z-10"
+          className="flex items-center justify-between px-32 py-4 border-b sticky top-0 z-10"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--border-sub)",
@@ -1930,7 +2105,7 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
             {entry ? "Edit Entry" : "New Entry"}
           </h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="text-lg leading-none"
             style={{ color: "var(--text-muted)" }}
           >
@@ -1938,7 +2113,10 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          className="mx-auto max-w-7xl p-6 space-y-6"
+        >
           {/* ① Date + Opening Cash */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1973,7 +2151,10 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
                   >
                     !
                   </span>
-                  <p className="text-xs leading-relaxed" style={{ color: "var(--danger-text)" }}>
+                  <p
+                    className="text-xs leading-relaxed"
+                    style={{ color: "var(--danger-text)" }}
+                  >
                     {dateError}
                   </p>
                 </div>
@@ -2154,7 +2335,7 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
           </div>
 
           {/* Purchase Credit — separate from Cash Expenses (liability, not cash) */}
-          <div>
+          {/* <div>
             <div className="flex items-center justify-between mb-3">
               <p
                 className="text-xs font-bold uppercase tracking-widest"
@@ -2180,7 +2361,7 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
               onClick={() => setPurchaseCreditPopup(true)}
               hint="Enter what was purchased on credit…"
             />
-          </div>
+          </div> */}
 
           {/* ⑩ Cash Expenses — Salary, Advance, and general categories.
               Salary & Advance are their own by-person breakdowns now (not
@@ -2288,7 +2469,14 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
                   </span>
                 )}
                 {overtime > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--accent-soft)", color: "var(--accent-text)", border: "1px solid var(--accent-border)" }}>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{
+                      background: "var(--accent-soft)",
+                      color: "var(--accent-text)",
+                      border: "1px solid var(--accent-border)",
+                    }}
+                  >
                     Overtime: ₹{fmt(overtime)}
                   </span>
                 )}
@@ -2357,7 +2545,7 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
           >
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="px-4 py-2 rounded-lg text-sm border font-medium"
               style={{
                 borderColor: "var(--border)",
@@ -2532,11 +2720,25 @@ function EntryModal({ entry, daybookEntries = [], existingDates, onSave, onClose
           expenses={form.expenseEntries}
           commonNames={personNames.expenseSubnames}
           onClose={() => setExpensePopup(false)}
-            expenseSubEntries={form.expenseSubEntries}
-            onSave={(vals, subEntries) => {
+          expenseSubEntries={form.expenseSubEntries}
+          onSave={(vals, subEntries) => {
             set("expenseEntries", vals);
-              set("expenseSubEntries", subEntries);
+            set("expenseSubEntries", subEntries);
             setExpensePopup(false);
+          }}
+        />
+      )}
+      {closeConfirmOpen && (
+        <ConfirmDialog
+          title="Go back?"
+          message="All entered data will be cleared. You will need to fill it in again. Do you want to go back?"
+          confirmLabel="Go Back"
+          cancelLabel="Stay"
+          danger
+          onCancel={() => setCloseConfirmOpen(false)}
+          onConfirm={() => {
+            setCloseConfirmOpen(false);
+            onClose();
           }}
         />
       )}
@@ -2569,9 +2771,9 @@ function daybookClosingCash(entry) {
   return (
     entry?.cashInHand ??
     entry?.closingCash ??
-    ((entry?.totalCash || 0) -
+    (entry?.totalCash || 0) -
       (entry?.cashExpenses || 0) -
-      (entry?.cashToOffice || 0))
+      (entry?.cashToOffice || 0)
   );
 }
 
@@ -2788,7 +2990,11 @@ export default function Dashboard() {
         return {
           ...p,
           ...(isEdit && oldMk && oldMk !== mk
-            ? { [oldMk]: (p[oldMk] || []).filter((e) => e._id !== editEntry._id) }
+            ? {
+                [oldMk]: (p[oldMk] || []).filter(
+                  (e) => e._id !== editEntry._id,
+                ),
+              }
             : {}),
           [mk]: isEdit
             ? [...list, data.data].sort(
@@ -2812,8 +3018,12 @@ export default function Dashboard() {
 
   const handleSavePersonNames = async (names, nextTabNames = tabNames) => {
     try {
-      const { data } = await API.put("/entry-fields/names", { names, tabNames: nextTabNames });
-      if (!data.success) throw new Error(data.message || "Unable to save names");
+      const { data } = await API.put("/entry-fields/names", {
+        names,
+        tabNames: nextTabNames,
+      });
+      if (!data.success)
+        throw new Error(data.message || "Unable to save names");
       setPersonNames(data.data || names);
       setTabNames(data.tabNames || nextTabNames);
       setShowNameSettings(false);
@@ -2942,16 +3152,13 @@ export default function Dashboard() {
             className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-white text-sm"
             style={{ background: "var(--accent)" }}
           >
-            D
+            {shopInfo?.name ? shopInfo.name.charAt(0).toUpperCase() : "N/A"}
           </div>
           <div>
             <p
-              className="text-sm font-bold leading-none"
+              className="text-base font-bold leading-none"
               style={{ color: "var(--text-primary)" }}
             >
-              Day Book
-            </p>
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {shopInfo?.name || "Loading shop…"}
             </p>
           </div>
@@ -3006,7 +3213,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Quick stats: Personal Cr / Patient Bill / Salary / Purchase Credit / Stock ─── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <QuickStatCard
             label="Personal Cr."
             hint="Grouped by person — pending, updates, notes"
@@ -3027,6 +3234,11 @@ export default function Dashboard() {
             hint="What's bought on credit — monthly & day-wise"
             onClick={() => navigate("/dashboard/purchase-credit")}
           />
+          <QuickStatCard
+  label="Reports"
+  hint="Sales, cash flow, credit, payroll & more"
+  onClick={() => navigate("/dashboard/reports")}
+/>
           <QuickStatCard label="Stock" comingSoon />
         </div>
 
@@ -3198,7 +3410,7 @@ export default function Dashboard() {
                     background: "var(--bg-elevated)",
                   }}
                 >
-                  ⚙ Settings 
+                  ⚙ Settings
                 </button>
                 <button
                   onClick={() => {
@@ -3615,24 +3827,33 @@ export default function Dashboard() {
                                                 },
                                               ]
                                             : []),
-                                        ...((row.overtimeEntries || []).length > 0
+                                        ...((row.overtimeEntries || []).length >
+                                        0
                                           ? row.overtimeEntries.map((e) => ({
                                               name: `[Overtime] ${e.name}`,
                                               amount: e.amount,
                                             }))
                                           : row.overtime > 0
-                                            ? [{ name: "Overtime", amount: row.overtime }]
+                                            ? [
+                                                {
+                                                  name: "Overtime",
+                                                  amount: row.overtime,
+                                                },
+                                              ]
                                             : []),
                                         ...Object.entries(
                                           normalizeExpenses(row.expenseEntries),
                                         )
                                           .filter(([, v]) => Number(v) > 0)
                                           .flatMap(([k, v]) =>
-                                            (row.expenseSubEntries?.[k] || []).length > 0
-                                              ? row.expenseSubEntries[k].map((item) => ({
-                                                  name: `[${k}] ${item.name}`,
-                                                  amount: item.amount,
-                                                }))
+                                            (row.expenseSubEntries?.[k] || [])
+                                              .length > 0
+                                              ? row.expenseSubEntries[k].map(
+                                                  (item) => ({
+                                                    name: `[${k}] ${item.name}`,
+                                                    amount: item.amount,
+                                                  }),
+                                                )
                                               : [{ name: k, amount: v }],
                                           ),
                                       ],

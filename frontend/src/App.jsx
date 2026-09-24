@@ -7,6 +7,7 @@ import ShopDetailView from "./pages/ShopDetailView";
 import PartnerShopsView from "./pages/PartnerShopsView";
 import PartnerShopDetailView from "./pages/PartnerShopDetailView";
 import CrDetailPage from "./pages/CrDetailPage";
+import ReportsPage from "./pages/ReportsPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
@@ -127,6 +128,16 @@ export default function App() {
         }
       />
 
+<Route
+  path="/dashboard/reports"
+  element={
+    <ProtectedRoute>
+      <ReportsPage />
+    </ProtectedRoute>
+  }
+/>
+
+      {/* Superadmin dashboard */}
       <Route
         path="/superadmin"
         element={
